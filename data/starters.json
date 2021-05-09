@@ -1,0 +1,43 @@
+{
+    "generation-1": [
+        "bulbasaur",
+        "charmander",
+        "squirtle"
+    ],
+    "generation-2": [    
+        "chikorita",
+        "cyndaquil",
+        "totodile"
+    ],
+    "generation-3": [    
+        "treecko",
+        "torchic",
+        "mudkip"
+    ],
+    "generation-4": [    
+        "turtwig",
+        "chimchar",
+        "piplup"
+    ],
+    "generation-5": [    
+        "snivy",
+        "tepig",
+        "oshawott"
+    ],
+    "generation-6": [    
+        "chespin",
+        "fennikin",
+        "froakie"
+    ],
+    "generation-7": [    
+        "rowlet",
+        "litten",
+        "popplio"
+    ],
+    "generation-8": [    
+        "grookey",
+        "scorbunny",
+        "sobble"
+    ]
+
+}
