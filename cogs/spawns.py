@@ -1,4 +1,4 @@
-from typing import Dict
+from typing import Dict, Optional
 import discord
 from discord.ext import commands
 import asyncio
@@ -38,7 +38,8 @@ class Spawns(commands.Cog):
             level = random.randint(1, 50)
             await ctx.reply(f'You caught a level {level} {name.lower()}!!')
 
-            await self.bot.pool.add_pokemon(ctx.author.id, name, level)
+            user = await self.bot.pool.get_user(ctx.author.id)
+            await user.add_pokemon(name, level)
 
             self.spawns.pop(ctx.channel.id)
             return
@@ -46,12 +47,12 @@ class Spawns(commands.Cog):
         await ctx.send('Wrong pokémon!')
 
     @commands.command(name='set')
+    @commands.has_guild_permissions(administrator=True)
     async def _set(self, ctx: commands.Context, *, channel: discord.TextChannel):
         guild = await self.bot.pool.get_guild(ctx.guild.id)
 
         if guild:
-            await self.bot.pool.update_spawn_channel(
-                guild_id=ctx.guild.id,
+            await guild.update_spawn_channel(
                 channel_id=channel.id
             )
 
@@ -61,6 +62,20 @@ class Spawns(commands.Cog):
 
         await self.bot.pool.add_guild(ctx.guild.id, channel.id)
         await ctx.send(f'Successfully set the spawn channel to {channel.mention}')
+
+    @commands.command('prefix')
+    async def _prefix(self, ctx: commands.Context, prefix: Optional[str]):
+        guild = await self.bot.pool.get_guild(ctx.guild.id)
+        
+        if not prefix:
+            return await ctx.send(f'My current prefix is `{guild.prefix}`.')
+
+        if ctx.author.guild_permissions.administrator:
+            await guild.update_prefix(prefix)
+            await ctx.send(f'Changed prefix to `{prefix}`.')
+
+        else:
+            await ctx.send('Missing administrator permissions.')
     
     @commands.command(name='spawn')
     @commands.is_owner()
@@ -77,10 +92,15 @@ class Spawns(commands.Cog):
         embed = discord.Embed()
         embed.title = 'Use p!catch <pokémon name> to catch the following pokémon.'
 
+        file = None
         embed.set_image(url=pokemon.sprite.front)
 
+        if name.lower() == 'eternamax eternatus':
+            file = discord.File(r"C:\Users\Dell\Desktop\Python\pog\data\img\eternamax.webp", filename="image.png")
+            embed.set_image(url="attachment://image.png")
+
         waiter = self.bot.loop.create_task(coro=self._sleep())
-        message = await ctx.send(embed=embed)
+        message = await ctx.send(embed=embed, file=file)
 
         self.spawns[ctx.channel.id] = pokemon
         await self._wait(message, waiter)
@@ -99,6 +119,9 @@ class Spawns(commands.Cog):
     def check_rarity(self):
         rarity = 'common'
 
+        if calc.chance(self.bot.ub_spawn_rate):
+            rarity = 'ub'
+
         if calc.chance(self.bot.mythical_spawn_rate):
             rarity = 'mythical'
 
@@ -115,7 +138,10 @@ class Spawns(commands.Cog):
             rarity = self.check_rarity()
 
             if rarity == 'common':
-                name = random.choice(self.bot.names)
+                name = random.choice(self.bot.commons)
+
+            if rarity == 'ub':
+                name = random.choice(self.bot.ultrabeasts)
 
             if rarity == 'legendary':
                 name = random.choice(self.bot.legendaries)
@@ -130,7 +156,7 @@ class Spawns(commands.Cog):
             embed.set_image(url=pokemon.sprite.front)
 
             message = await message.channel.send(embed=embed)
-            waiter = self.bot.loop.create_task(self._sleep())
+            waiter = asyncio.ensure_future(self._sleep())
 
             self.spawns[message.channel.id] = pokemon
             await self._wait(message, waiter)

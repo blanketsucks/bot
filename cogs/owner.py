@@ -54,6 +54,7 @@ class Owner(commands.Cog):
     async def _edit(self, 
                 ctx: commands.Context,
                 id: int,
+                name: str,
                 level: int,
                 hp: int, 
                 atk: int, 
@@ -61,8 +62,10 @@ class Owner(commands.Cog):
                 spatk: int, 
                 spdef: int, 
                 speed: int):
+        user = await self.bot.pool.get_user(ctx.author.id)
+        name = name.replace('-', ' ')
 
-        await self.bot.pool.edit_pokemon(ctx.author.id, id, level, (hp, atk, defense, spatk, spdef, speed))
+        await user.edit_pokemon(ctx.author.id, name, id, level, (hp, atk, defense, spatk, spdef, speed))
         
 
 def setup(bot: Pokecord):

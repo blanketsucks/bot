@@ -30,3 +30,19 @@ def calculate_other(base: int, iv: int, level: int):
 
 def chance(__chance: int):
     return random.randint(1, __chance) == random.randint(1,  __chance)
+
+def critical():
+    crit = chance(24)
+
+    if crit:
+        return 1.5
+
+    return 1
+
+def damage(level: int, power: int, attack: int, defense: int, type: int):
+    base = (((((2 * level) / 5) + 2) * power * attack / defense) / 50) + 2
+    dmg = base * 1 * 1 * 1 * critical() * random.choice([0.85, 1]) * 1.5 * type * 1 * 1
+
+    return dmg
+
+def foo(): return 'Hey!'

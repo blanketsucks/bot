@@ -6,13 +6,18 @@ from typing import List
 import aiohttp
 
 async def get_move(name: str, session=None):
+    try:
+        return Move._moves[name]
+    except KeyError:
+        pass
+
     url = ENDPOINTS['move'].format(move=name)
     session = session or aiohttp.ClientSession()
 
     async with session.get(url) as resp:
         data = await resp.json()
 
-    return Move(data, session)
+    return Move(data, session, 0)
 
 _AffectingMove = namedtuple('_AffectingMove', 'change move')
 
@@ -94,6 +99,10 @@ class Move:
         return self.__data.get('priority', 0)
 
     @property
+    def damage_class(self):
+        return self.__data['damage_class']['name']
+
+    @property
     def learned_at(self):
         return self.__data.get('learned_at', 0)
 
@@ -107,3 +116,15 @@ class Move:
             poks.append(Pokemon(pokemon['name'], self.__session))
 
         return poks
+
+    def stat_changes(self):
+        changes = {}
+        entries = self.__data.get('stat_changes')
+
+        for entry in entries:
+            change = entry['change']
+            name = entry['stat']['name']
+
+            changes[name.capitalize()] = change
+
+        return changes

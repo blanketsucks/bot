@@ -1,9 +1,10 @@
-import json
+
+from re import split
 from discord.ext import commands
 import discord
 from typing import Union
 
-from utils import calc
+import wrapper
 from bot import Pokecord
 
 class Pokedex(commands.Cog):
@@ -45,6 +46,12 @@ class Pokedex(commands.Cog):
 
         embed.description += '\n'.join(stats)
 
+        if name.lower() == 'eternamax eternatus':
+            file = discord.File(r"C:\Users\Dell\Desktop\Python\pog\data\img\eternamax.webp", filename="image.png")
+
+            embed.set_image(url="attachment://image.png")
+            return await ctx.send(file=file, embed=embed)
+ 
         embed.set_image(url=sprite)
         await ctx.send(embed=embed)
 
@@ -66,6 +73,36 @@ class Pokedex(commands.Cog):
 
         parsed = '\n'.join([f'**{move.name}**: Level {move.learned_at}' for move in moves])
         embed.description = parsed
+
+        await ctx.send(embed=embed)
+
+    @commands.command('move')
+    async def _move(self, ctx: commands.Context, *, name: str):
+        original = ' '.join([part.capitalize() for part in name.split(' ')])
+        name = name.replace(' ', '-')
+
+        try:
+            move = await wrapper.get_move(name, session=self.bot.session)
+        except:
+            return await ctx.send('Move not found.')
+
+        items = [
+            f'**Power**: {move.power}',
+            f'**Accuracy**: {move.accuracy}',
+            f'**Damage Class**: {move.damage_class.capitalize()}',
+        ]
+
+        if move.damage_class == 'status':
+            changes = move.stat_changes()
+            actual = ' | '.join([f'{v}+ {k}' for k, v in changes.items()])
+
+            items.append(f'**Stat Changes**: {actual}')
+
+        embed = discord.Embed(title=original)
+        embed.description = '\n'.join(items)
+
+        embed.add_field(name='Effect:', value=move.effects[0].effect)
+        embed.add_field(name='Short Effect:', value=move.effects[0].short_effect)
 
         await ctx.send(embed=embed)
 

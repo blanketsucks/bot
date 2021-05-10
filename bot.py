@@ -1,9 +1,12 @@
 import asyncio
 import typing
 import json
+import aiohttp
 from discord.ext import commands
 import discord
 from dataclasses import dataclass
+import importlib
+import sys
 
 import wrapper
 from utils.context import Context
@@ -15,7 +18,9 @@ MYTHICALS = 'data/mythicals.json'
 NAMES = 'data/names.json'
 STARTERS = 'data/starters.json'
 LEVELS = 'data/levels.json'
-
+COMMONS = 'data/commons.json'
+ULTRA_BEASTS = 'data/ultrabeasts.json'
+ 
 URL = 'postgres://postgres:adamelkan@localhost:5432/postgres'
 
 @dataclass
@@ -43,6 +48,10 @@ class Pokedex(typing.Dict[int, wrapper.Pokemon]):
 class Pokecord(commands.Bot):
     def __init__(self, *args, **options):
         self.load_data()
+
+        self.loaded_once = False
+        self.session = aiohttp.ClientSession()
+
         super().__init__(*args, **options, intents=discord.Intents.all())
 
         self.all_extensions = [
@@ -56,6 +65,7 @@ class Pokecord(commands.Bot):
         self.shiny_spawn_rate = 8192
         self.legendary_spawn_rate = 4000
         self.mythical_spawn_rate = 2000
+        self.ub_spawn_rate = 1200
 
         self.pokemons = Pokemons()
         self.pokedex = Pokedex()
@@ -71,6 +81,28 @@ class Pokecord(commands.Bot):
         )
 
         self.add_check(self.starter_check, call_once=True)
+
+    def get_commons(self):
+        commons = []
+
+        for name in self.names:
+            if name in self.legendaries:
+                continue
+                
+            if name in self.mythicals:
+                continue
+
+            if name in self.ultrabeasts:
+                continue
+
+            commons.append(name)
+
+        with open('data/commons.json', 'w') as file:
+            json.dump(commons, file, indent=4)
+        
+    async def get_prefix(self, message: discord.Message):
+        guild = await self.pool.get_guild(message.guild.id)
+        return guild.prefix
 
     def load_data(self):
         with open(EVOLUTIONS, 'r') as evolutions:
@@ -91,12 +123,18 @@ class Pokecord(commands.Bot):
         with open(LEVELS, 'r') as levels:
             self.levels = json.load(levels)
 
+        with open(ULTRA_BEASTS, 'r') as ubs:
+            self.ultrabeasts = json.load(ubs)
+
+        with open(COMMONS, 'r') as commons:
+            self.commons = json.load(commons)
+
     async def starter_check(self, ctx: commands.Context):
         if ctx.command.name == 'set':
             return True
 
         guild = await self.pool.get_guild(ctx.guild.id)
-        if not guild:
+        if not guild.spawn_channel_id:
             await ctx.send(
                 content='A spawn channel has not been set. Please set it using `p!set <channel>`.'
             )
@@ -111,13 +149,9 @@ class Pokecord(commands.Bot):
 
         return True
 
-    async def load_pokemon(self, dex: typing.Union[str, int]):
-        if isinstance(dex, str):
-            dex = dex.lower()
-            dex = self.parse_pokemon(dex).name
-
+    async def _load_pokemon(self, name: str):
         try:
-            pokemon = await wrapper.get_pokemon(dex, session=self.http._HTTPClient__session)
+            pokemon = await wrapper.get_pokemon(name, session=self.session)
         except:
             return None
 
@@ -126,11 +160,18 @@ class Pokecord(commands.Bot):
 
         return pokemon
 
+    async def load_pokemon(self, dex: typing.Union[str, int]):
+        if isinstance(dex, str):
+            dex = dex.lower()
+            dex = self.parse_pokemon(dex).name
+
+        return await self._load_pokemon(dex)
+
     async def load_all_pokemons(self):
         coros = []
 
         for name in self.names:
-            coro = self.load_pokemon(name)
+            coro = self._load_pokemon(name)
             coros.append(coro)
 
         return await asyncio.gather(*coros)
@@ -181,6 +222,7 @@ class Pokecord(commands.Bot):
         is_dusk = False
         is_dawn = False
         is_origin = False
+        is_eternamax = False
         is_altered = False
         is_unbound = False
         is_x = False
@@ -230,6 +272,9 @@ class Pokecord(commands.Bot):
             if parts[0] == 'unbound' or parts[1] == 'unbound':
                 is_unbound = True
 
+            if parts[0] == 'eternamax' or parts[1] == 'eternamax':
+                is_eternamax = True
+
         if len(parts) == 3:
             if parts[0] == 'dusk' and parts[1] == 'mane':
                 is_dusk = True  
@@ -253,7 +298,8 @@ class Pokecord(commands.Bot):
             dawn=is_dawn,
             dusk=is_dusk,
             origin=is_origin,
-            unbound=is_unbound
+            unbound=is_unbound,
+            etenermax=is_eternamax
         )
 
         if parts[0] == 'deoxys':
@@ -298,7 +344,8 @@ class Pokecord(commands.Bot):
                         dawn: bool,
                         dusk: bool,
                         origin: bool,
-                        unbound: bool):
+                        unbound: bool,
+                        etenermax: bool):
 
         parsed = name
 
@@ -334,6 +381,9 @@ class Pokecord(commands.Bot):
         if unbound:
             parsed += '-unbound'
 
+        if etenermax:
+            parsed += '-eternamax'
+
         return parsed
 
     def _parse_pokemon(self, name: str):
@@ -361,9 +411,31 @@ class Pokecord(commands.Bot):
         speed = data['speed']
 
         return rounded, hp, attack, defense, spatk, spdef, speed
+    
+    def load_module(self, module: str):
+        try:
+            return self.load_extension(module)
+        except commands.ExtensionNotFound:
+            pass
+            
+        mod = importlib.import_module(module)
+        return mod
+
+    def reload_module(self, module: str):
+        try:
+            return self.reload_extension(module)
+        except (commands.ExtensionNotFound, commands.ExtensionNotLoaded):
+            pass
+
+        try:
+            mod = sys.modules[module]
+        except KeyError:
+            mod = importlib.import_module(module)
+
+        return importlib.reload(mod)
 
     async def start(self, *args, **kwargs):
-        # self._waiter = self.loop.create_task(self.load_all_pokemons())
+        # waiter = self.loop.create_task(self.load_all_pokemons())
         self.pool = await database.connect(URL, bot=self)
         
         async with self.pool.acquire() as conn:
@@ -372,6 +444,10 @@ class Pokecord(commands.Bot):
 
         await super().start(*args, **kwargs)
 
+    async def close(self) -> None:
+        await self.pool.close()
+        return await super().close()
+
     async def get_context(self, message):
         return await super().get_context(message, cls=Context)
 
@@ -379,6 +455,16 @@ bot = Pokecord('p!')
 
 @bot.event
 async def on_ready():
+    if not bot.loaded_once:
+        for guild in bot.guilds:
+            await bot.pool.add_guild(guild.id)
+
+        bot.loaded_once = True
+
     print('Bot is ready.')
+
+@bot.event
+async def on_guild_join(guild: discord.Guild):
+    await bot.pool.add_guild(guild.id)
 
 bot.run('NzYzNzc0NDgxNTU0NDczMDAx.X38mag.b8tNypJfVchkXQjk9cUi37EuZTw')
