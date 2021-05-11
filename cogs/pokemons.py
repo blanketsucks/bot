@@ -134,6 +134,10 @@ class Pokemons(commands.Cog):
             entry, _ = user.get_pokemon_by_name(id.lower())
             id = entry['pokemon']['id']
 
+            if id.lower() == 'latest' or id.lower() == 'l':
+                entry, entries = user.get_pokemon_by_id(id)
+                id = user.current_id
+
         if not entry:
             await ctx.send(f'No Pokémon found with the id of {id}.')
             return
