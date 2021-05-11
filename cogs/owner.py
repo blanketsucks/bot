@@ -65,7 +65,7 @@ class Owner(commands.Cog):
         user = await self.bot.pool.get_user(ctx.author.id)
         name = name.replace('-', ' ')
 
-        await user.edit_pokemon(ctx.author.id, name, id, level, (hp, atk, defense, spatk, spdef, speed))
+        await user.edit_pokemon(name, id, level, (hp, atk, defense, spatk, spdef, speed))
         
 
 def setup(bot: Pokecord):

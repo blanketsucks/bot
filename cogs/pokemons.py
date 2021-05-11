@@ -124,7 +124,7 @@ class Pokemons(commands.Cog):
         await ctx.send(embed=embed, file=file)
 
     @commands.command(name='select')
-    async def _select(self, ctx: commands.Context, id: Union[int, str]):
+    async def _select(self, ctx: commands.Context, *, id: Union[int, str]):
         user = await self.bot.pool.get_user(ctx.author.id)
 
         if isinstance(id, int):
@@ -132,11 +132,12 @@ class Pokemons(commands.Cog):
         
         if isinstance(id, str):
             entry, _ = user.get_pokemon_by_name(id.lower())
-            id = entry['pokemon']['id']
 
             if id.lower() == 'latest' or id.lower() == 'l':
                 entry, entries = user.get_pokemon_by_id(id)
                 id = user.current_id
+
+            id = entry['pokemon']['id']
 
         if not entry:
             await ctx.send(f'No Pokémon found with the id of {id}.')
@@ -205,10 +206,10 @@ class Pokemons(commands.Cog):
         moves = self.__sort(moves, entry['pokemon']['level'])
         moves.sort()
 
-        embed = discord.Embed()
+        embed = discord.Embed(title=f"{name.title()}'s moves")
 
-        embed.description = '\n'.join([f'{k}: {v}' for k, v in m.items()])
-        embed.add_field(name='Available moves: ', value=' | '.join([move.name.replace('-', ' ') for move in moves]))
+        embed.description = '\n'.join([f'{k}: {v.title()}' for k, v in m.items()])
+        embed.add_field(name='Available moves: ', value=' | '.join([move.name.replace('-', ' ').title() for move in moves]))
 
         await ctx.send(embed=embed)
 

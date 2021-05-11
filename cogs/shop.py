@@ -129,7 +129,7 @@ class Shop(commands.Cog):
 
         if form == 'mega-y':
             name = user.get_selected()[0]['pokemon']['name']
-            if self._check_mega_x(name) is False:
+            if self._check_mega_y(name) is False:
                 return await ctx.send('Invalid pokémon to mega.')
 
             await self.buy_mega(user, y=True)
@@ -283,7 +283,7 @@ class Shop(commands.Cog):
             name = 'mega ' + original + ' x'
 
         if y:
-            name = 'mega ' + original + ' x'
+            name = 'mega ' + original + ' y'
 
         if primal:
             name = 'primal ' + original

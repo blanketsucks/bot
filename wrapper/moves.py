@@ -62,9 +62,7 @@ class AffectingMoves:
         return self._decrease
 
 class Move:
-    def __new__(cls, __data, __session, __learned_at) -> 'Move':
-        self = super().__new__(cls)
-
+    def __init__(self, __data, __session, __learned_at) -> 'Move':
         self.__session = __session
         self.__data = __data
 
@@ -77,8 +75,6 @@ class Move:
 
         self.power = self.__data.get('power', 0)
         self.pp = self.__data.get('pp', 0)
-
-        return self
 
     def __repr__(self) -> str:
         return '<Move name={0.name!r} accuracy={0.accuracy} power={0.power}>'.format(self)

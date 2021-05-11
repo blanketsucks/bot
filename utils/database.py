@@ -128,6 +128,10 @@ class User(Model):
 
         return entry['pokemon']['moves']
 
+    def get_selected_moves(self) -> Mapping[str, str]:
+        entry, _ = self.get_selected()
+        return entry['pokemon']['moves']
+
     async def update_pokemons(self, data: List[Pokemon]):
         entries = json.dumps(data)
 
