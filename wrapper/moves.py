@@ -6,11 +6,6 @@ from typing import List
 import aiohttp
 
 async def get_move(name: str, session=None):
-    try:
-        return Move._moves[name]
-    except KeyError:
-        pass
-
     url = ENDPOINTS['move'].format(move=name)
     session = session or aiohttp.ClientSession()
 
@@ -67,8 +62,6 @@ class AffectingMoves:
         return self._decrease
 
 class Move:
-    _moves = {}
-
     def __new__(cls, __data, __session, __learned_at) -> 'Move':
         self = super().__new__(cls)
 
@@ -85,8 +78,7 @@ class Move:
         self.power = self.__data.get('power', 0)
         self.pp = self.__data.get('pp', 0)
 
-        move = cls._moves.setdefault(self.name, self)
-        return move
+        return self
 
     def __repr__(self) -> str:
         return '<Move name={0.name!r} accuracy={0.accuracy} power={0.power}>'.format(self)

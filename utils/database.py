@@ -1,7 +1,8 @@
+import random
 import asyncpg
 import asyncio
 import json
-from typing import Any, Mapping, Optional, Tuple, List, Union, TYPE_CHECKING
+from typing import Any, Awaitable, Dict, Generator, Mapping, Optional, Tuple, List, TypeVar, Union, TYPE_CHECKING
 import typing
 import discord
 
@@ -13,13 +14,15 @@ if TYPE_CHECKING:
 Pokemon = Mapping[str, Any]
 
 class AsyncIterator:
-    def __init__(self, future: asyncio.Future[List[asyncpg.Record]], pool: 'Pool', bot: 'Pokecord', *, cls) -> None:
+    def __init__(self, future: asyncio.Future[List], pool: 'Pool', bot: 'Pokecord') -> None:
         self.future = future
         self.pool = pool
         self.bot = bot
-        self.cls = cls
         self.records = []
         self.index = 0
+
+    def __await__(self):
+        return self.future.__await__()
 
     def __aiter__(self):
         return self
@@ -32,12 +35,11 @@ class AsyncIterator:
 
         try:
             record = self.records[self.index]
-            return self.cls(record, self.pool, self.bot)
+            return record
         except IndexError:
             raise StopAsyncIteration
         finally:
             self.index += 1
-
 
 class Model:
     def __init__(self, record: asyncpg.Record, pool: 'Pool', bot: 'Pokecord') -> None:
@@ -55,6 +57,9 @@ class Model:
         return self.record[name + '_id']
 
     async def fetch(self):
+        raise NotImplementedError
+
+    async def refetch(self):
         raise NotImplementedError
 
 class User(Model):
@@ -85,26 +90,43 @@ class User(Model):
 
         return user
 
+    async def refetch(self):
+        user = await self.pool.get_user(self.id)
+        return user
+
     def get_pokemon_by_id(self, id: int) -> Tuple[Optional[Pokemon], List[Pokemon]]:
+        copy = self.pokemons.copy()
+
         for pokemon in self.pokemons:
             other = pokemon['pokemon']['id']
 
             if other == id:
-                return pokemon, self.pokemons
+                return pokemon, copy
 
-        return None, self.pokemons
+        return None, copy
 
     def get_pokemon_by_name(self, name: str) -> Tuple[Optional[Pokemon], List[Pokemon]]:
+        copy = self.pokemons.copy()
+
         for pokemon in self.pokemons:
             other = pokemon['pokemon']['name']
 
-            if other == name:
-                return pokemon, self.pokemons
+            if other.lower() == name.lower():
+                return pokemon, copy
 
-        return None, self.pokemons
+        return None, copy
 
     def get_selected(self) -> Tuple[Optional[Pokemon], List[Pokemon]]:
         return self.get_pokemon_by_id(self.selected)
+
+    def get_pokemon_moves(self, id: Union[int, str]) -> Dict[str, str]:
+        if isinstance(id, str):
+            entry, entries = self.get_pokemon_by_name(id)
+
+        if isinstance(id, int):
+            entry, entries = self.get_pokemon_by_id(id)
+
+        return entry['pokemon']['moves']
 
     async def update_pokemons(self, data: List[Pokemon]):
         entries = json.dumps(data)
@@ -113,16 +135,17 @@ class User(Model):
             await conn.execute('UPDATE users SET pokemons = $1 WHERE user_id = $2', entries, self.id)
             return data
 
-    async def add_pokemon(self, name: str, level: int):
+    async def add_pokemon(self, name: str, level: int, exp: int):
         id = await self.get_next_pokemon_id()
         ivs, rounded = get_ivs()
+        copy = self.pokemons.copy()
 
         data = {
             'pokemon': {
                 'name': name,
                 'level': level,
                 'id': id,
-                'exp': 0,
+                'exp': exp,
                 'ivs': {
                     'rounded': rounded,
                     'hp': ivs[0],
@@ -130,15 +153,22 @@ class User(Model):
                     'defense': ivs[2],
                     'spatk': ivs[3],
                     'spdef': ivs[4],
-                    'speed': ivs[5]
-                }
+                    'speed': ivs[5],
+                },
+                'moves': {
+                    '1': 'tackle',
+                    '2': None,
+                    '3': None,
+                    '4': None
+                },
+                'nature': random.choice(list(self.bot.natures.values()))
             }
         }
 
-        self.pokemons.append(data)
-        await self.update_pokemons(self.pokemons)
+        copy.append(data)
+        await self.update_pokemons(copy)
 
-    async def edit_pokemon(self, user_id: int, name: str, id: int, level: int, ivs: List[int]) -> None:
+    async def edit_pokemon(self, name: str, id: int, level: int, ivs: List[int]) -> None:
         rounded = _round(ivs)
 
         entry, entries = self.get_pokemon_by_id(id)
@@ -158,7 +188,7 @@ class User(Model):
         }
 
         entries.append(entry)
-        await self.update_pokemons(user_id, entries)
+        await self.update_pokemons(entries)
 
     async def update_pokemon(self, name: str, level: int) -> None:
         entry, entries = self.get_selected()
@@ -171,24 +201,50 @@ class User(Model):
         entries.append(entry)
         await self.update_pokemons(entries)
 
-    async def remove_pokemon(self, user_id: int, id: Union[str, int]):
+    async def update_pokemon_move(self, id: str, move: str):
+        entry, entries = self.get_selected()
+        entries.remove(entry)
+
+        entry['pokemon']['moves'][id] = move
+        entries.append(entry)
+
+        await self.update_pokemons(entries)
+
+    async def update_pokemon_nature(self, nature: str):
+        data = self.bot.natures[nature.capitalize()]
+        entry, entries = self.get_selected()
+
+        entries.remove(entry)
+        entry['pokemon']['nature'] = data
+
+        entries.append(entry)
+        await self.update_pokemons(entries)
+
+    async def remove_pokemon(self, id: Union[str, int]):
         if isinstance(id, str):
-            entry, entries = self.get_pokemon_by_name()
+            entry, entries = self.get_pokemon_by_name(id)
+            id = entry['pokemon']['id']
 
         if isinstance(id, int):
             entry, entries = self.get_pokemon_by_id(id)
 
         entries.remove(entry)
-        await self.update_pokemons(user_id, entries)
+        new = await self.get_last_pokemon_id()
 
-    async def update_level(self, user_id: int, level: int):
+        if self.selected == id:
+            await self.change_selected(new)
+
+        await self.update_pokemons(entries)
+        await self.change_all_ids(id)
+
+    async def update_level(self, level: int):
         entry, entries = self.get_selected()
         entries.remove(entry)
 
         entry['pokemon']['level'] = level
         entries.append(entry)
 
-        await self.update_pokemons(user_id, entries)
+        await self.update_pokemons(entries)
 
     def get_level(self) -> int:
         entry, entries = self.get_selected()
@@ -220,12 +276,45 @@ class User(Model):
             await conn.execute('UPDATE users SET selected = $1 WHERE user_id = $2', id, self.id)
             return id
 
+    async def change_all_ids(self, thrown: int):
+        user = await self.refetch()
+        entries = user.pokemons.copy()
+
+        for entry in entries:
+            if int(entry['pokemon']['id']) > thrown:
+                entry['pokemon']['id'] = entry['pokemon']['id'] - 1
+
+        await user.update_pokemons(entries)
+
     async def get_next_pokemon_id(self) -> int:
         async with self.pool.acquire() as conn:
             new_id = self.current_id + 1
 
             await conn.execute('UPDATE users SET current_id = $1 WHERE user_id = $2', new_id, self.id)
             return new_id
+
+    async def get_last_pokemon_id(self) -> int:
+        user = await self.refetch()
+
+        async with self.pool.acquire() as conn:
+            new = user.current_id - 1
+
+            await conn.execute('UPDATE users SET current_id = $1 WHERE user_id = $2', new, self.id)
+            return new
+
+    async def add_to_balance(self, amount: int):
+        new = self.balance + amount
+
+        async with self.pool.acquire() as conn:
+            await conn.execute('UPDATE users SET credits = $1 WHERE user_id = $2', new, self.id)
+            return new
+
+    async def remove_from_balance(self, amount: int):
+        new = self.balance - amount
+
+        async with self.pool.acquire() as conn:
+            await conn.execute('UPDATE users SET credits = $1 WHERE user_id = $2', new, self.id)
+            return new
 
 class Guild(Model):
 
@@ -245,6 +334,10 @@ class Guild(Model):
             except (discord.NotFound, discord.HTTPException):
                 guild = None
 
+        return guild
+
+    async def refetch(self):
+        guild = await self.pool.get_guild(self.id)
         return guild
 
     async def fetch_spawn_channel(self) -> Optional[discord.TextChannel]:
@@ -295,16 +388,6 @@ class Pool:
             ret = await conn.fetchrow(query, *args)
             return ret
 
-    async def fetchone(self, query: str, *args):
-        async with self.acquire() as conn:
-            ret = await conn.fetchval(query, *args)
-            return ret
-
-    async def cursor(self, query: str, *args):
-        async with self.acquire() as conn:
-            cursor = await conn.cursor(query, *args)
-            return cursor
-
     async def add_user(self, user_id: int, name: str) -> Optional[bool]:
         ivs, rounded = get_ivs()
         data = [
@@ -322,7 +405,14 @@ class Pool:
                         'spatk': ivs[3],
                         'spdef': ivs[4],
                         'speed': ivs[5]
-                    }
+                    },
+                    'moves': {
+                        '1': 'tackle',
+                        '2': None,
+                        '3': None,
+                        '4': None
+                    },
+                    'nature': random.choice(list(self.bot.natures.values()))
                 }
             }
         ]
@@ -345,9 +435,19 @@ class Pool:
 
             return User(user, self, self.bot)
 
-    def users(self) -> typing.AsyncIterator[User]:
-        future = asyncio.ensure_future(self.fetch('SELECT * FROM users'))
-        return AsyncIterator(future, self, self.bot, cls=User)
+    async def _users(self) -> List[User]:
+        records = await self.fetch('SELECT * FROM users')
+        users = []
+
+        for record in records:
+            user = User(record, self, self.bot)
+            users.append(user)
+
+        return users
+
+    def users(self) -> Union[typing.AsyncIterator[User], Awaitable[List[User]]]:
+        future = asyncio.ensure_future(self._users())
+        return AsyncIterator(future, self, self.bot)
 
     async def add_guild(self, guild_id: int, channel_id: int=None, prefix: str='p!') -> None:
         async with self.acquire() as conn:
@@ -370,9 +470,20 @@ class Pool:
 
             return Guild(guild, self, self.bot)
 
-    def guilds(self) -> typing.AsyncIterator[Guild]:
-        future = asyncio.ensure_future(self.fetch('SELECT * FROM guilds'))
-        return AsyncIterator(future, self, self.bot, cls=Guild)
+    async def _guilds(self) -> List[Guild]:
+        records = await self.fetch('SELECT * FROM guilds')
+        guilds = []
+
+        for record in records:
+            guild = Guild(record, self, self.bot)
+            guilds.append(guild)
+
+        return guilds
+
+    def guilds(self) -> Union[typing.AsyncIterator[Guild], Awaitable[List[Guild]]]:
+        future = asyncio.ensure_future(self._guilds())
+        return AsyncIterator(future, self, self.bot)
+            
 
 async def connect(dns: str, *, bot: 'Pokecord'):
     pool = await asyncpg.create_pool(dns)

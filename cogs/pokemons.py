@@ -3,7 +3,7 @@ from discord.ext import commands
 import discord
 from typing import Optional, Union
 
-from utils import calc
+from utils import calc, Context
 from bot import Pokecord
 
 class Pokemons(commands.Cog):
@@ -66,6 +66,7 @@ class Pokemons(commands.Cog):
         id = pokemon['id']
         name = pokemon['name']
         level = pokemon['level']
+        nature = pokemon['nature']
 
         rounded, hp, atk, defen, spatk, spdef, spd = self.bot._get_ivs(pokemon['ivs'])
         pokemon, shiny = await self.bot.fetch_pokemon(name)
@@ -75,8 +76,7 @@ class Pokemons(commands.Cog):
         types = await pokemon.get_types()
         types = ', '.join(type.name.capitalize() for type in types)
 
-        name = self.bot._parse_pokemon(pokemon.name)
-        name = ' '.join([part.capitalize() for part in name.split(' ')])
+        name = self.bot._parse_pokemon(pokemon.name).title()
 
         exp = user.get_pokemon_experience(id)
 
@@ -84,7 +84,8 @@ class Pokemons(commands.Cog):
         embed = discord.Embed(title=name)
 
         embed.description = f'**Level**: {level} | **EXP**: {exp}/{total}\n'
-        embed.description += f'**Types**: {types}\n\n'
+        embed.description += f'**Types**: {types}\n'
+        embed.description += f'**Nature**: {self.bot.get_nature_name(nature)}\n\n'
 
         file = None
 
@@ -99,11 +100,11 @@ class Pokemons(commands.Cog):
             embed.set_image(url="attachment://image.png")
 
         health = calc.calculate_health(pokemon.health.base, hp, level)
-        attack = calc.calculate_other(pokemon.attack.base, atk, level)
-        defense = calc.calculate_other(pokemon.defense.base, defen, level)
-        spattack = calc.calculate_other(pokemon.spatk.base, spatk, level)
-        spdefense = calc.calculate_other(pokemon.spdef.base, spdef, level)
-        speed = calc.calculate_other(pokemon.speed.base, spd, level)
+        attack = calc.calculate_other(pokemon.attack.base, atk, level, nature['atk'])
+        defense = calc.calculate_other(pokemon.defense.base, defen, level, nature['def'])
+        spattack = calc.calculate_other(pokemon.spatk.base, spatk, level, nature['spatk'])
+        spdefense = calc.calculate_other(pokemon.spdef.base, spdef, level, nature['spdef'])
+        speed = calc.calculate_other(pokemon.speed.base, spd, level, nature['speed'])
 
         stats = {
             'HP': (health, hp),
@@ -123,9 +124,15 @@ class Pokemons(commands.Cog):
         await ctx.send(embed=embed, file=file)
 
     @commands.command(name='select')
-    async def _select(self, ctx: commands.Context, id: int):
+    async def _select(self, ctx: commands.Context, id: Union[int, str]):
         user = await self.bot.pool.get_user(ctx.author.id)
-        entry, _ = user.get_pokemon_by_id(id)
+
+        if isinstance(id, int):
+            entry, _ = user.get_pokemon_by_id(id)
+        
+        if isinstance(id, str):
+            entry, _ = user.get_pokemon_by_name(id.lower())
+            id = entry['pokemon']['id']
 
         if not entry:
             await ctx.send(f'No Pokémon found with the id of {id}.')
@@ -136,11 +143,81 @@ class Pokemons(commands.Cog):
 
         pokemon, _ = await self.bot.fetch_pokemon(name)
 
-        name = self.bot._parse_pokemon(pokemon.name)
-        name = ' '.join([part.capitalize() for part in name.split(' ')])
+        name = self.bot._parse_pokemon(pokemon.name).title()
 
-        await user.change_selected(ctx.author.id, id)
+        await user.change_selected(id)
         await ctx.send(f'Changed selected pokémon to level {level} {name}.')
+
+    @commands.command(name='release')
+    async def _release(self, ctx: Context, ids: commands.Greedy[Union[int, str]]):
+        user = await self.bot.pool.get_user(ctx.author.id)
+
+        if len(user.pokemons) == 1:
+            return await ctx.send('You can not release all your pokémons.')
+
+        result = await ctx.confirmation(
+            f'Are you sure you want to release {len(ids)} pokémons? Type `confirm` to proceed or `cancel` to cancel this operation.'
+        )
+
+        if result is None:
+            return await ctx.send('Invalid choice. Cancelling the operation.')
+
+        if result is False:
+            return await ctx.send('Cancelling the operation.')
+
+        for id in ids:
+            await user.remove_pokemon(id)
+
+        await ctx.send(f'Successfully released {len(ids)} pokémons.')
+
+    def __sort(self, moves, level):
+        actual = []
+
+        for move in moves:
+            if move.learned_at > level:
+                continue
+            
+            actual.append(move)
+        return actual
+
+    async def check_moves(self, entry, move: str):
+        pokemon, _ = await self.bot.fetch_pokemon(entry['pokemon']['name'])
+        moves = await self.bot.get_moves(pokemon)
+
+        moves = self.__sort(moves, entry['pokemon']['level'])
+        return move in moves
+
+    @commands.command(name='moves')
+    async def _moves(self, ctx: Context):
+        user = await self.bot.pool.get_user(ctx.author.id)
+        entry, entries = user.get_selected()
+
+        name = entry['pokemon']['name']
+        pokemon, _ = await self.bot.fetch_pokemon(name)
+
+        moves = await self.bot.get_moves(pokemon)
+        m = user.get_pokemon_moves(name)
+
+        moves = self.__sort(moves, entry['pokemon']['level'])
+        moves.sort()
+
+        embed = discord.Embed()
+
+        embed.description = '\n'.join([f'{k}: {v}' for k, v in m.items()])
+        embed.add_field(name='Available moves: ', value=' | '.join([move.name.replace('-', ' ') for move in moves]))
+
+        await ctx.send(embed=embed)
+
+    @commands.command(name='learn')
+    async def _learn(self, ctx: commands.Context, id: str, move: str):
+        user = await self.bot.pool.get_user(ctx.author.id)
+        entry, _ = user.get_selected()
+
+        check = await self.check_moves(entry, move)
+        if not check:
+            return await ctx.send('Move unavailable.')
+
+        await user.update_pokemon_move(id, move)
 
     @commands.command(name='starter')
     async def _starter(self, ctx: commands.Context, *, name: Optional[str]):
@@ -185,10 +262,15 @@ class Pokemons(commands.Cog):
 
         if exp > needed:
             actual = pokemon['pokemon']['name']
-            evolution = self.bot.evolutions[actual.capitalize()]
 
-            name = evolution['evolution']
-            evo = evolution['level']
+            try:
+                evolution = self.bot.evolutions[actual.capitalize()]
+
+                name = evolution['evolution']
+                evo = evolution['level']
+            except KeyError:
+                evo = 1000
+                
 
             embed = discord.Embed(title='Level up!!')
             embed.description = f'Your {actual.capitalize()} has leveled up to level {level + 1}!!\n'

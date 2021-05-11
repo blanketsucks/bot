@@ -1,5 +1,3 @@
-
-from re import split
 from discord.ext import commands
 import discord
 from typing import Union
@@ -55,26 +53,26 @@ class Pokedex(commands.Cog):
         embed.set_image(url=sprite)
         await ctx.send(embed=embed)
 
-    @commands.command(name='moves')
-    async def _moves(self, ctx: commands.Context, *, dex: Union[str, int]):
-        pokemon, shiny = await self.bot.fetch_pokemon(dex)
-        if not pokemon:
-            return await ctx.send(
-                content='Pokémon not found.'
-            )
+    # @commands.command(name='moves')
+    # async def _moves(self, ctx: commands.Context, *, dex: Union[str, int]):
+    #     pokemon, shiny = await self.bot.fetch_pokemon(dex)
+    #     if not pokemon:
+    #         return await ctx.send(
+    #             content='Pokémon not found.'
+    #         )
 
-        name = self.bot._parse_pokemon(pokemon.name)
-        name = ' '.join([part.capitalize() for part in name.split(' ')])
+    #     name = self.bot._parse_pokemon(pokemon.name)
+    #     name = ' '.join([part.capitalize() for part in name.split(' ')])
 
-        moves = await pokemon.get_moves()
-        moves.sort()
+    #     moves = await self.bot.get_moves(pokemon)
+    #     moves.sort()
 
-        embed = discord.Embed(title=f'Available Moves for: {name}')
+    #     embed = discord.Embed(title=f'Available Moves for: {name}')
 
-        parsed = '\n'.join([f'**{move.name}**: Level {move.learned_at}' for move in moves])
-        embed.description = parsed
+    #     parsed = '\n'.join([f'**{move.name}**: Level {move.learned_at}' for move in moves])
+    #     embed.description = parsed
 
-        await ctx.send(embed=embed)
+    #     await ctx.send(embed=embed)
 
     @commands.command('move')
     async def _move(self, ctx: commands.Context, *, name: str):

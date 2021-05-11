@@ -17,6 +17,21 @@ class Context(commands.Context):
 
         return await self.send(embed=embed)
 
+    async def confirmation(self, content: str):
+        def check(m):
+            return m.channel == self.channel and m.author == self.author
+
+        await self.send(content=content)
+        message = await self.bot.wait_for('message', check=check)
+
+        if message.content.lower() == 'confirm':
+            return True
+
+        if message.content.lower() == 'cancel':
+            return False
+
+        return None
+
     async def get_language(self):
         async with self.bot.pool.acquire() as conn:
             ...

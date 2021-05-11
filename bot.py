@@ -20,6 +20,9 @@ STARTERS = 'data/starters.json'
 LEVELS = 'data/levels.json'
 COMMONS = 'data/commons.json'
 ULTRA_BEASTS = 'data/ultrabeasts.json'
+NATURES = 'data/natures.json'
+MEGAS = 'data/megas.json'
+GIGAS = 'data/gigantamaxes.json'
  
 URL = 'postgres://postgres:adamelkan@localhost:5432/postgres'
 
@@ -58,10 +61,12 @@ class Pokecord(commands.Bot):
             'cogs.pokemons',
             'cogs.owner',
             'cogs.pokedex',
-            'cogs.spawns'
+            'cogs.spawns',
+            'cogs.shop',
+            'cogs.events'
         ]
 
-        self.global_spawn_chance = 20
+        self.global_spawn_chance = 100000
         self.shiny_spawn_rate = 8192
         self.legendary_spawn_rate = 4000
         self.mythical_spawn_rate = 2000
@@ -102,7 +107,7 @@ class Pokecord(commands.Bot):
         
     async def get_prefix(self, message: discord.Message):
         guild = await self.pool.get_guild(message.guild.id)
-        return guild.prefix
+        return (guild.prefix, self.user.mention + ' ', '<@!%s> ' % self.user.id)
 
     def load_data(self):
         with open(EVOLUTIONS, 'r') as evolutions:
@@ -128,6 +133,22 @@ class Pokecord(commands.Bot):
 
         with open(COMMONS, 'r') as commons:
             self.commons = json.load(commons)
+
+        with open(NATURES, 'r') as natures:
+            self.natures = json.load(natures)
+
+        with open(MEGAS, 'r') as megas:
+            self.megas = json.load(megas)
+
+        with open(GIGAS) as gigas:
+            self.gigas = json.load(gigas)
+
+    def get_nature_name(self, data: typing.Mapping[str, str]) -> typing.Optional[str]:
+        for key, item in self.natures.items():
+            if item == data:
+                return key
+
+        return None
 
     async def starter_check(self, ctx: commands.Context):
         if ctx.command.name == 'set':
@@ -195,12 +216,24 @@ class Pokecord(commands.Bot):
 
         return pokemon, shiny
 
+    async def get_moves(self, pokemon: wrapper.Pokemon):
+        moves = await pokemon.get_moves()
+        actual = []
+
+        for move in moves:
+            if move.damage_class == 'status':
+                continue
+            
+            actual.append(move)
+
+        return actual
+
     def _parse_name(self, parts):
         if len(parts) == 2:
             name = parts[1]
 
         elif len(parts) == 3:
-            name = parts[2]
+            name = parts[1]
         
         elif len(parts) == 4:
             name = parts[2]
@@ -225,13 +258,18 @@ class Pokecord(commands.Bot):
         is_eternamax = False
         is_altered = False
         is_unbound = False
+        is_gmax = False
         is_x = False
         is_y = False
 
         name = name.lower()
+        original = name
 
         parts = name.split(' ')
         name = self._parse_name(parts)
+
+        if original == 'dusk mane necrozma' or original == 'dawn wings necrozma':
+            name = 'necrozma'
 
         if parts[0] == 'shiny':
             is_shiny = True
@@ -275,6 +313,9 @@ class Pokecord(commands.Bot):
             if parts[0] == 'eternamax' or parts[1] == 'eternamax':
                 is_eternamax = True
 
+            if parts[0] == 'gigantamax' or parts[1] == 'gigantamax':
+                is_gmax = True
+
         if len(parts) == 3:
             if parts[0] == 'dusk' and parts[1] == 'mane':
                 is_dusk = True  
@@ -299,7 +340,8 @@ class Pokecord(commands.Bot):
             dusk=is_dusk,
             origin=is_origin,
             unbound=is_unbound,
-            etenermax=is_eternamax
+            etenermax=is_eternamax,
+            gmax=is_gmax
         )
 
         if parts[0] == 'deoxys':
@@ -345,7 +387,8 @@ class Pokecord(commands.Bot):
                         dusk: bool,
                         origin: bool,
                         unbound: bool,
-                        etenermax: bool):
+                        etenermax: bool,
+                        gmax: bool,):
 
         parsed = name
 
@@ -383,6 +426,9 @@ class Pokecord(commands.Bot):
 
         if etenermax:
             parsed += '-eternamax'
+
+        if gmax:
+            parsed += '-gmax'
 
         return parsed
 

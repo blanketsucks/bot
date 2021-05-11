@@ -25,8 +25,8 @@ def calculate_health(base: int, iv: int, level: int):
 
     return math.floor(0.01 * (2 * base + iv) * 100) + level + 10
 
-def calculate_other(base: int, iv: int, level: int):
-    return math.floor(0.01 * (2 * base + iv) * level) + 5
+def calculate_other(base: int, iv: int, level: int, nature: int):
+    return math.floor(((0.01 * (2 * base + iv) * level) + 5) * nature)
 
 def chance(__chance: int):
     return random.randint(1, __chance) == random.randint(1,  __chance)

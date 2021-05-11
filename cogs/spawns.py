@@ -39,9 +39,9 @@ class Spawns(commands.Cog):
             await ctx.reply(f'You caught a level {level} {name.lower()}!!')
 
             user = await self.bot.pool.get_user(ctx.author.id)
-            await user.add_pokemon(name, level)
+            await user.add_pokemon(name, level, pokemon.base_experience)
 
-            self.spawns.pop(ctx.channel.id)
+            self.spawns.pop(ctx.channel.id, None)
             return
 
         await ctx.send('Wrong pokémon!')
@@ -150,6 +150,8 @@ class Spawns(commands.Cog):
                 name = random.choice(self.bot.mythicals)
 
             pokemon, _ = await self.bot.fetch_pokemon(name)
+            self.bot.dispatch('pokemon_spawn', pokemon, message.channel)
+
             pokemon.name = self.bot._parse_pokemon(pokemon.name)
 
             embed = discord.Embed(title='Use p!catch <pokémon name> to catch the following pokémon.')

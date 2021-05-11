@@ -1,0 +1,239 @@
+{
+    "Adamant" : {
+      "hp": 1,
+      "atk": 1.1,
+      "def": 1,
+      "spatk": 0.9,
+      "spdef": 1,
+      "speed": 1,
+      "summary": "+Atk, -SpA"
+      
+    },
+    "Bashful": {
+      "hp": 1,
+      "atk": 1,
+      "def": 1,
+      "spatk": 1,
+      "spdef": 1,
+      "speed": 1,
+      "summary": "No stat changes."
+      
+    },
+    "Bold": {
+      "hp": 1,
+      "atk": 0.9,
+      "def": 1.1,
+      "spatk": 1,
+      "spdef": 1,
+      "speed": 1,
+      "summary": "+Def, -Atk"
+      
+    },
+    "Brave": {
+      "hp": 1,
+      "atk": 1.1,
+      "def": 1,
+      "spatk": 1,
+      "spdef": 1,
+      "speed": 0.9,
+      "summary": "+Atk, -Spe"
+      
+    },
+    "Calm": {
+      "hp": 1,
+      "atk": 0.9,
+      "def": 1,
+      "spatk": 1,
+      "spdef": 1.1,
+      "speed": 1,
+      "summary": "+SpD, -Atk"
+      
+    },
+    "Careful": {
+      "hp": 1,
+      "atk": 1,
+      "def": 1,
+      "spatk": 0.9,
+      "spdef": 1.1,
+      "speed": 1,
+      "summary": "+SpD, -SpA"
+      
+    },
+    "Docile": {
+      "hp": 1,
+      "atk": 1,
+      "def": 1,
+      "spatk": 1,
+      "spdef": 1,
+      "speed": 1,
+      "summary": "No stat changes."
+      
+    },
+    "Gentle": {
+      "hp": 1,
+      "atk": 1,
+      "def": 0.9,
+      "spatk": 1,
+      "spdef": 1.1,
+      "speed": 1,
+      "summary": "+SpD, -Def"
+      
+    },
+    "Hardy": {
+      "hp": 1,
+      "atk": 1,
+      "def": 1,
+      "spatk": 1,
+      "spdef": 1,
+      "speed": 1,
+      "summary": "No stat changes."
+      
+    },
+    "Hasty": {
+      "hp": 1,
+      "atk": 1,
+      "def": 0.9,
+      "spatk": 1,
+      "spdef": 1,
+      "speed": 1.1,
+      "summary": "+Spe, -Def"
+      
+    },
+    "Impish": {
+      "hp": 1,
+      "atk": 1,
+      "def": 1.1,
+      "spatk": 0.9,
+      "spdef": 1,
+      "speed": 1,
+      "summary": "+Def, -SpA"
+      
+    },
+    "Jolly": {
+      "hp": 1,
+      "atk": 1,
+      "def": 1,
+      "spatk": 0.9,
+      "spdef": 1,
+      "speed": 1.1,
+      "summary": "+Spe, -SpA"
+      
+    },
+    "Lax": {
+      "hp": 1,
+      "atk": 1,
+      "def": 1.1,
+      "spatk": 1,
+      "spdef": 0.9,
+      "speed": 1,
+      "summary": "+Def, -SpD" 
+    },
+    "Lonely": {
+      "hp": 1,
+      "atk": 1.1,
+      "def": 0.9,
+      "spatk": 1,
+      "spdef": 1,
+      "speed": 1,
+      "summary": "+Atk, -Def"
+    },
+    "Mild": {
+      "hp": 1,
+      "atk": 1,
+      "def": 0.9,
+      "spatk": 1.1,
+      "spdef": 1,
+      "speed": 1,
+      "summary": "+SpA, -Def"
+    },
+    "Modest": {
+      "hp": 1,
+      "atk": 0.9,
+      "def": 1,
+      "spatk": 1.1,
+      "spdef": 1,
+      "speed": 1,
+      "summary": "+SpA, -Atk"
+    },
+    "Naive": {
+      "hp": 1,
+      "atk": 1,
+      "def": 1,
+      "spatk": 1,
+      "spdef": 0.9,
+      "speed": 1.1,
+      "summary": "+Spe, -SpD"
+    },
+    "Naughty": {
+      "hp": 1,
+      "atk": 1.1,
+      "def": 1,
+      "spatk": 1,
+      "spdef": 0.9,
+      "speed": 1,
+      "summary": "+Atk, -SpD"
+    },
+    "Quiet": {
+      "hp": 1,
+      "atk": 1,
+      "def": 1,
+      "spatk": 1.1,
+      "spdef": 1,
+      "speed": 0.9,
+      "summary": "+SpA, -Spe"
+    },
+    "Quirky": {
+      "hp": 1,
+      "atk": 1,
+      "def": 1,
+      "spatk": 1,
+      "spdef": 1,
+      "speed": 1,
+      "summary": "No stat changes."
+    },
+    "Rash": {
+      "hp": 1,
+      "atk": 1,
+      "def": 1,
+      "spatk": 1.1,
+      "spdef": 0.9,
+      "speed": 1,
+      "summary": "+SpA, -SpD"
+    },
+    "Relaxed": {
+      "hp": 1,
+      "atk": 1,
+      "def": 1.1,
+      "spatk": 1,
+      "spdef": 1,
+      "speed": 0.9,
+      "summary": "+Def, -Spe"
+    },
+    "Sassy": {
+      "hp": 1,
+      "atk": 1,
+      "def": 1,
+      "spatk": 1,
+      "spdef": 1.1,
+      "speed": 0.9,
+      "summary": "+SpD, -Spe"
+    },
+    "Serious": {
+      "hp": 1,
+      "atk": 1,
+      "def": 1,
+      "spatk": 1,
+      "spdef": 1,
+      "speed": 1,
+      "summary": "No stat changes."
+    },
+    "Timid": {
+      "hp": 1,
+      "atk": 0.9,
+      "def": 1,
+      "spatk": 1,
+      "spdef": 1,
+      "speed": 1.1,
+      "summary": "+Spe, -Atk"
+    }
+}
