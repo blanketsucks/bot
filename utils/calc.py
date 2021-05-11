@@ -44,5 +44,3 @@ def damage(level: int, power: int, attack: int, defense: int, type: int):
     dmg = base * 1 * 1 * 1 * critical() * random.choice([0.85, 1]) * 1.5 * type * 1 * 1
 
     return dmg
-
-def foo(): return 'Hey!'
