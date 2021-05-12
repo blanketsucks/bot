@@ -17,9 +17,12 @@ class Context(commands.Context):
 
         return await self.send(embed=embed)
 
-    async def confirmation(self, content: str):
+    async def confirmation(self, content: str, *, member: discord.Member=None):
+        if not member:
+            member = self.author
+
         def check(m):
-            return m.channel == self.channel and m.author == self.author
+            return m.channel == self.channel and m.author == member
 
         await self.send(content=content)
         message = await self.bot.wait_for('message', check=check)

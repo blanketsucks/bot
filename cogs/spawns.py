@@ -106,6 +106,9 @@ class Spawns(commands.Cog):
         await self._wait(message, waiter)
 
     async def should_spawn(self, message: discord.Message):
+        if not message.guild:
+            return False
+
         guild = await self.bot.pool.get_guild(message.guild.id)
 
         conditions = [

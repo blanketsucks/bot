@@ -185,11 +185,21 @@ class Pokemons(commands.Cog):
             actual.append(move)
         return actual
 
+    def __names(self, moves):
+        m = []
+
+        for move in moves:
+            m.append(move.name)
+
+        return m
+
     async def check_moves(self, entry, move: str):
         pokemon, _ = await self.bot.fetch_pokemon(entry['pokemon']['name'])
         moves = await self.bot.get_moves(pokemon)
 
         moves = self.__sort(moves, entry['pokemon']['level'])
+        moves = self.__names(moves)
+
         return move in moves
 
     @commands.command(name='moves')
@@ -208,13 +218,13 @@ class Pokemons(commands.Cog):
 
         embed = discord.Embed(title=f"{name.title()}'s moves")
 
-        embed.description = '\n'.join([f'{k}: {v.title()}' for k, v in m.items()])
+        embed.description = '\n'.join([f'{k}: {"None" if not v else v.title()}' for k, v in m.items()])
         embed.add_field(name='Available moves: ', value=' | '.join([move.name.replace('-', ' ').title() for move in moves]))
 
         await ctx.send(embed=embed)
 
     @commands.command(name='learn')
-    async def _learn(self, ctx: commands.Context, id: str, move: str):
+    async def _learn(self, ctx: commands.Context, id: str, *, move: str):
         user = await self.bot.pool.get_user(ctx.author.id)
         entry, _ = user.get_selected()
 

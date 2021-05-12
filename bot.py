@@ -63,7 +63,8 @@ class Pokecord(commands.Bot):
             'cogs.pokedex',
             'cogs.spawns',
             'cogs.shop',
-            'cogs.events'
+            'cogs.events',
+            'cogs.duels'
         ]
 
         self.global_spawn_chance = 100000
