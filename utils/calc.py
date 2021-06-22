@@ -29,7 +29,7 @@ def calculate_other(base: int, iv: int, level: int, nature: int):
     return math.floor(((0.01 * (2 * base + iv) * level) + 5) * nature)
 
 def chance(__chance: int):
-    return random.randint(1, __chance) == random.randint(1,  __chance)
+    return random.randint(0, __chance) == random.randint(0,  __chance)
 
 def critical():
     crit = chance(24)

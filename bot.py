@@ -10,6 +10,7 @@ import sys
 
 import wrapper
 from utils.context import Context
+from utils.models import get_pokemons
 from utils import database
 
 EVOLUTIONS = 'data/evolutions.json'
@@ -73,8 +74,7 @@ class Pokecord(commands.Bot):
         self.mythical_spawn_rate = 2000
         self.ub_spawn_rate = 1200
 
-        self.pokemons = Pokemons()
-        self.pokedex = Pokedex()
+        self.pokedex = get_pokemons()
 
         for cog in self.all_extensions:
             self.load_extension(cog)
@@ -458,6 +458,28 @@ class Pokecord(commands.Bot):
         speed = data['speed']
 
         return rounded, hp, attack, defense, spatk, spdef, speed
+
+    async def parse_pokemon_argument(self, ctx: Context, argument: str):
+        user = await ctx.bot.pool.get_user(ctx.author.id)
+
+        if not argument:
+            pokemon, _ = user.get_selected()
+            return pokemon, _
+
+        if argument.isdigit() or isinstance(argument, int):
+            id = int(argument)
+            pokemon, _ = user.get_pokemon_by_id(id)
+
+            return pokemon, _
+
+        if argument.lower() in ('l', 'latest'):
+            id = user.get_last_pokemon_id()
+            pokemon, _ = user.get_pokemon_by_id(id)
+
+            return pokemon, _
+
+        pokemon, _ = user.get_pokemon_by_name(argument)
+        return pokemon, _
     
     def load_module(self, module: str):
         try:

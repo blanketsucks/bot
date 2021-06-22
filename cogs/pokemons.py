@@ -3,15 +3,16 @@ from discord.ext import commands
 import discord
 from typing import Optional, Union
 
-from utils import calc, Context
+from utils import calc, Context, PokemonConverter
 from bot import Pokecord
+
 
 class Pokemons(commands.Cog):
     def __init__(self, bot: Pokecord) -> None:
         self.bot = bot
 
     @commands.command('pokemons')
-    async def _pokemons(self, ctx: commands.Context):
+    async def _pokemons(self, ctx: Context):
         user = await self.bot.pool.get_user(ctx.author.id)
         entries = user.pokemons
 
@@ -19,13 +20,11 @@ class Pokemons(commands.Cog):
         embed.description = ''
 
         for entry in entries:
-            poke = entry['pokemon']
+            level = entry.level
+            id = entry.id
+            name = entry.id
 
-            level = poke['level']
-            id = poke['id']
-            name = poke['name']
-
-            rounded, hp, atk, defense, spatk, spdef, speed = self.bot._get_ivs(poke['ivs'])
+            rounded = entry.ivs.rounded
             pokemon, shiny = await self.bot.fetch_pokemon(name)
 
             name = self.bot._parse_pokemon(pokemon.name)
@@ -40,71 +39,40 @@ class Pokemons(commands.Cog):
         await ctx.send(embed=embed)
     
     @commands.command('info')
-    async def _info(self, ctx: commands.Context, id: Optional[Union[int, str]]):
-        user = await self.bot.pool.get_user(ctx.author.id)
+    async def _info(self, ctx: Context, id: Optional[Union[int, str]]):
+        pokemon, pokemons = await self.bot.parse_pokemon_argument(ctx, id)
 
-        if not id:
-            entry, entries = user.get_selected()
+        id = pokemon.id
+        name = pokemon.name
+        level = pokemon.level
+        nature = pokemon.nature
 
-        else:
-            if isinstance(id, int):
-                entry, entries = user.get_pokemon_by_id(id)
-                if not entry:
-                    await ctx.send(f'No Pokémon found with the id of {id}.')
-                    return
+        rounded = pokemon.ivs.rounded
+        hp = pokemon.ivs.health
+        atk = pokemon.ivs.attack
+        defen = pokemon.ivs.defense
+        spatk = pokemon.ivs.spattack
+        spdef = pokemon.ivs.spdefense
+        spd = pokemon.ivs.speed
 
-            if isinstance(id, str):
-                if id.lower() == 'latest' or id.lower() == 'l':
-                    id = user.current_id
-                    entry, entries = user.get_pokemon_by_id(id)
+        entry = self.bot.pokedex.get(name.title())
 
-                else:
-                    entry, entries = user.get_pokemon_by_name(id)
-
-        pokemon = entry['pokemon']
-
-        id = pokemon['id']
-        name = pokemon['name']
-        level = pokemon['level']
-        nature = pokemon['nature']
-
-        rounded, hp, atk, defen, spatk, spdef, spd = self.bot._get_ivs(pokemon['ivs'])
-        pokemon, shiny = await self.bot.fetch_pokemon(name)
-
-        await pokemon.get_stats()
-
-        types = await pokemon.get_types()
-        types = ', '.join(type.name.capitalize() for type in types)
-
-        name = self.bot._parse_pokemon(pokemon.name).title()
-
-        exp = user.get_pokemon_experience(id)
+        types = ', '.join(type.capitalize() for type in entry.types if type is not None)
+        exp = pokemon.user.get_pokemon_experience(id)
 
         total = self.bot.levels[str(level)]['needed']
-        embed = discord.Embed(title=name)
+        embed = discord.Embed(title=name.title())
 
         embed.description = f'**Level**: {level} | **EXP**: {exp}/{total}\n'
         embed.description += f'**Types**: {types}\n'
-        embed.description += f'**Nature**: {self.bot.get_nature_name(nature)}\n\n'
+        embed.description += f'**Nature**: {nature.name}\n\n'
 
-        file = None
-
-        sprite = pokemon.sprite.front
-        if shiny:
-            sprite = pokemon.sprite.shiny
-
-        embed.set_image(url=sprite)
-
-        if name.lower() == 'eternamax eternatus':
-            file = discord.File(r"C:\Users\Dell\Desktop\Python\pog\data\img\eternamax.webp", filename="image.png")
-            embed.set_image(url="attachment://image.png")
-
-        health = calc.calculate_health(pokemon.health.base, hp, level)
-        attack = calc.calculate_other(pokemon.attack.base, atk, level, nature['atk'])
-        defense = calc.calculate_other(pokemon.defense.base, defen, level, nature['def'])
-        spattack = calc.calculate_other(pokemon.spatk.base, spatk, level, nature['spatk'])
-        spdefense = calc.calculate_other(pokemon.spdef.base, spdef, level, nature['spdef'])
-        speed = calc.calculate_other(pokemon.speed.base, spd, level, nature['speed'])
+        health = calc.calculate_health(entry.stats.hp, hp, level)
+        attack = calc.calculate_other(entry.stats.atk, atk, level, nature.attack)
+        defense = calc.calculate_other(entry.stats.defense, defen, level, nature.defense)
+        spattack = calc.calculate_other(entry.stats.spatk, spatk, level, nature.spattack)
+        spdefense = calc.calculate_other(entry.stats.spdef, spdef, level, nature.spdefense)
+        speed = calc.calculate_other(entry.stats.speed, spd, level, nature.speed)
 
         stats = {
             'HP': (health, hp),
@@ -119,38 +87,24 @@ class Pokemons(commands.Cog):
         embed.description += '\n'.join(stats)
         embed.description += f'\n**Total**: {rounded}%'
 
-        embed.set_footer(text=f'{id}/{len(entries)} Pokémons')
-
-        await ctx.send(embed=embed, file=file)
+        embed.set_footer(text=f'{id}/{len(pokemons)} Pokémons')
+        await ctx.send_with_image(embed=embed, pokemon=entry)
 
     @commands.command(name='select')
     async def _select(self, ctx: commands.Context, *, id: Union[int, str]):
-        user = await self.bot.pool.get_user(ctx.author.id)
-
-        if isinstance(id, int):
-            entry, _ = user.get_pokemon_by_id(id)
-        
-        if isinstance(id, str):
-            entry, _ = user.get_pokemon_by_name(id.lower())
-
-            if id.lower() == 'latest' or id.lower() == 'l':
-                entry, entries = user.get_pokemon_by_id(id)
-                id = user.current_id
-
-            id = entry['pokemon']['id']
+        entry = await self.bot.parse_pokemon_argument(ctx, id)
 
         if not entry:
             await ctx.send(f'No Pokémon found with the id of {id}.')
             return
 
-        name = entry['pokemon']['name']
-        level = entry['pokemon']['level']
-
+        name = entry.name
+        level = entry.level
         pokemon, _ = await self.bot.fetch_pokemon(name)
 
         name = self.bot._parse_pokemon(pokemon.name).title()
 
-        await user.change_selected(id)
+        await entry.user.change_selected(entry.id)
         await ctx.send(f'Changed selected pokémon to level {level} {name}.')
 
     @commands.command(name='release')
@@ -194,10 +148,10 @@ class Pokemons(commands.Cog):
         return m
 
     async def check_moves(self, entry, move: str):
-        pokemon, _ = await self.bot.fetch_pokemon(entry['pokemon']['name'])
+        pokemon, _ = await self.bot.fetch_pokemon(entry.name)
         moves = await self.bot.get_moves(pokemon)
 
-        moves = self.__sort(moves, entry['pokemon']['level'])
+        moves = self.__sort(moves, entry.level)
         moves = self.__names(moves)
 
         return move in moves
@@ -207,13 +161,13 @@ class Pokemons(commands.Cog):
         user = await self.bot.pool.get_user(ctx.author.id)
         entry, entries = user.get_selected()
 
-        name = entry['pokemon']['name']
+        name = entry.name
         pokemon, _ = await self.bot.fetch_pokemon(name)
 
         moves = await self.bot.get_moves(pokemon)
         m = user.get_pokemon_moves(name)
 
-        moves = self.__sort(moves, entry['pokemon']['level'])
+        moves = self.__sort(moves, entry.level)
         moves.sort()
 
         embed = discord.Embed(title=f"{name.title()}'s moves")
@@ -265,7 +219,7 @@ class Pokemons(commands.Cog):
             return
 
         pokemon, _ = user.get_selected()
-        if pokemon['pokemon']['level'] == 100:
+        if pokemon.level == 100:
             return
 
         await user.add_experience(up)
@@ -276,17 +230,12 @@ class Pokemons(commands.Cog):
         needed = self.bot.levels[str(level)]['needed']
 
         if exp > needed:
-            actual = pokemon['pokemon']['name']
+            actual = pokemon.name
+            evolution = self.bot.evolutions[actual.capitalize()]
 
-            try:
-                evolution = self.bot.evolutions[actual.capitalize()]
-
-                name = evolution['evolution']
-                evo = evolution['level']
-            except KeyError:
-                evo = 1000
-                
-
+            name = evolution['evolution']
+            evo = evolution['level']
+            
             embed = discord.Embed(title='Level up!!')
             embed.description = f'Your {actual.capitalize()} has leveled up to level {level + 1}!!\n'
 
