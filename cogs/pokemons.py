@@ -1,11 +1,11 @@
 import random
-from discord.ext import commands
+from discord.ext import commands, menus
 import discord
 from typing import Optional, Union
 
-from utils import calc, Context, PokemonConverter
+from utils import calc, Context
+from utils.menus import PokemonsSource
 from bot import Pokecord
-
 
 class Pokemons(commands.Cog):
     def __init__(self, bot: Pokecord) -> None:
@@ -16,27 +16,10 @@ class Pokemons(commands.Cog):
         user = await self.bot.pool.get_user(ctx.author.id)
         entries = user.pokemons
 
-        embed = discord.Embed()
-        embed.description = ''
+        source = PokemonsSource(entries, self.bot)
+        pages = menus.MenuPages(source)
 
-        for entry in entries:
-            level = entry.level
-            id = entry.id
-            name = entry.id
-
-            rounded = entry.ivs.rounded
-            pokemon, shiny = await self.bot.fetch_pokemon(name)
-
-            name = self.bot._parse_pokemon(pokemon.name)
-            name = ' '.join([part.capitalize() for part in name.split(' ')])
-
-            embed.description += f'**{name}** | Level: {level} | ID: {id} | IV: {rounded}%\n'
-
-        if not embed.description:
-            embed.title = 'No pokémons found.'
-            embed.description = embed.Empty
-
-        await ctx.send(embed=embed)
+        await pages.start(ctx)
     
     @commands.command('info')
     async def _info(self, ctx: Context, id: Optional[Union[int, str]]):
@@ -92,7 +75,7 @@ class Pokemons(commands.Cog):
 
     @commands.command(name='select')
     async def _select(self, ctx: commands.Context, *, id: Union[int, str]):
-        entry = await self.bot.parse_pokemon_argument(ctx, id)
+        entry, _ = await self.bot.parse_pokemon_argument(ctx, id)
 
         if not entry:
             await ctx.send(f'No Pokémon found with the id of {id}.')
@@ -100,12 +83,9 @@ class Pokemons(commands.Cog):
 
         name = entry.name
         level = entry.level
-        pokemon, _ = await self.bot.fetch_pokemon(name)
-
-        name = self.bot._parse_pokemon(pokemon.name).title()
 
         await entry.user.change_selected(entry.id)
-        await ctx.send(f'Changed selected pokémon to level {level} {name}.')
+        await ctx.send(f'Changed selected pokémon to level {level} {name.title()}.')
 
     @commands.command(name='release')
     async def _release(self, ctx: Context, ids: commands.Greedy[Union[int, str]]):
@@ -162,9 +142,9 @@ class Pokemons(commands.Cog):
         entry, entries = user.get_selected()
 
         name = entry.name
-        pokemon, _ = await self.bot.fetch_pokemon(name)
+        pokemon = self.bot.pokedex.get(name)
 
-        moves = await self.bot.get_moves(pokemon)
+        moves = await self.bot.get_moves(pokemon.slug)
         m = user.get_pokemon_moves(name)
 
         moves = self.__sort(moves, entry.level)
@@ -231,15 +211,14 @@ class Pokemons(commands.Cog):
 
         if exp > needed:
             actual = pokemon.name
-            evolution = self.bot.evolutions[actual.capitalize()]
+            evolution = self.bot.pokedex.get(actual).evolutions.to
 
-            name = evolution['evolution']
-            evo = evolution['level']
+            name = evolution.names.en
             
             embed = discord.Embed(title='Level up!!')
             embed.description = f'Your {actual.capitalize()} has leveled up to level {level + 1}!!\n'
 
-            if level >= int(evo):
+            if level >= int(evolution.level):
                 await user.update_pokemon(name.lower(), level + 1)
                 embed.description += f'{actual.capitalize()} has evolved into {name}.'
 

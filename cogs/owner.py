@@ -3,7 +3,6 @@ from discord.ext import commands
 import textwrap
 
 from utils.context import Context
-from utils import calc
 from bot import Pokecord
 
 class Owner(commands.Cog):

@@ -4,8 +4,9 @@ import discord
 from discord.ext import commands
 
 from bot import Pokecord
+from utils import calc, Context
+import database
 import wrapper
-from utils import database, calc, Context
 
 import functools
 
@@ -69,8 +70,8 @@ class Player:
         self.record = record
         self.bot = bot
 
-    async def prepare(self):
-        health = await self.get_starting_health()
+    def prepare(self):
+        health = self.get_starting_health()
         attack, spatk = self.get_attack_stats()
         defense, spdef = self.get_defense_stats()
         speed = self.get_speed_stats()
@@ -104,7 +105,7 @@ class Player:
 
         return damage
 
-    async def validate_turn(self,  ctx: commands.Context) -> int:
+    async def validate_turn(self, ctx: commands.Context) -> int:
         try:
             check = functools.partial(self.check, self.user)
 
@@ -112,7 +113,7 @@ class Player:
             context = await self.bot.get_context(message)
 
             if context.valid:
-                return await self.validate_turn()
+                return await self.validate_turn(ctx)
 
         except asyncio.TimeoutError:
             await ctx.send('You took too long. Duel cancelled.')
@@ -138,12 +139,12 @@ class Player:
             return round(calc.damage(self.selected.level, move.power, self.stats.attack, self.stats.defense, 1))
 
         if move.damage_class.lower() == 'special':
-            return round(calc.damage(self.selected.level, move.power, self.stats.spatk, self.stats.spdefense, 1))
+            return round(calc.damage(self.selected.level, move.power, self.stats.spatk, self.stats.spdef, 1))
 
         return dmg
 
 
-    async def get_starting_health(self):
+    def get_starting_health(self):
         entry, _ = self.record.get_selected()
         self.selected = entry
 
@@ -151,10 +152,9 @@ class Player:
         level = entry.level
         hp = entry.ivs.health
         
-        self.pokemon, shiny = await self.bot.fetch_pokemon(name)
-        await self.pokemon.get_stats()
+        self.pokemon = self.bot.pokedex.get(name)
 
-        health = calc.calculate_health(self.pokemon.health.base, hp, level) 
+        health = calc.calculate_health(self.pokemon.stats.hp, hp, level) 
         return health
 
     def get_attack_stats(self):
@@ -162,8 +162,8 @@ class Player:
         ivs = self.selected.data['ivs']
         nature = self.selected.nature
 
-        atk = calc.calculate_other(self.pokemon.attack.base, ivs['attack'], level, nature.attack)
-        spatk = calc.calculate_other(self.pokemon.spatk.base, ivs['spatk'], level, nature.spattack)
+        atk = calc.calculate_other(self.pokemon.stats.attack, ivs['attack'], level, nature.attack)
+        spatk = calc.calculate_other(self.pokemon.stats.spatk, ivs['spatk'], level, nature.spattack)
 
         return atk, spatk
 
@@ -172,7 +172,7 @@ class Player:
         ivs = self.selected.data['ivs']
         nature = self.selected.nature
 
-        speed = calc.calculate_other(self.pokemon.speed.base, ivs['speed'], level, nature.speed)
+        speed = calc.calculate_other(self.pokemon.stats.speed, ivs['speed'], level, nature.speed)
         return speed
 
     def get_defense_stats(self):
@@ -180,8 +180,8 @@ class Player:
         ivs = self.selected.data['ivs']
         nature = self.selected.nature
 
-        defense = calc.calculate_other(self.pokemon.defense.base, ivs['defense'], level, nature.defense)
-        spdef = calc.calculate_other(self.pokemon.spdef.base, ivs['spatk'], level, nature.spdefense)
+        defense = calc.calculate_other(self.pokemon.stats.defense, ivs['defense'], level, nature.defense)
+        spdef = calc.calculate_other(self.pokemon.stats.spdef, ivs['spatk'], level, nature.spdefense)
 
         return defense, spdef
 
@@ -199,8 +199,8 @@ class Duel:
         self.ctx = ctx
         message = await ctx.send('Starting the duel...')
 
-        await self.p1.prepare()
-        await self.p2.prepare()
+        self.p1.prepare()
+        self.p2.prepare()
 
         faster = self.get_faster_pokemon()
 
@@ -228,7 +228,7 @@ class Duel:
             embed = discord.Embed(title=f'{self.p1.user.display_name} VS {self.p1.user.display_name}')
 
             embed.description = f'{first} VS {second}\n'
-            embed.description += f'{self.user_health}/{user_total} {self.enemy_health}/{enemy_total}'
+            embed.description += f'{self.user_health}/{self.p1.stats.health} {self.enemy_health}/{self.p2.stats.health}'
 
             await ctx.send(embed=embed)
 

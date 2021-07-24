@@ -1,6 +1,8 @@
 import csv
 import dataclasses
+import json
 from typing import Callable, Dict, Tuple, Type, Union
+from pprint import pprint
 
 bool_fields = (
     'enabled',
@@ -35,6 +37,47 @@ def read(filename: str):
             for row in rows
         ]
         return rows
+
+def _get_evolution_level(name: str) -> int:
+    with open('evolutions.json', 'r') as f:
+        evolutions = json.load(f)
+
+    return int(evolutions[name]['level'])
+
+def _get_evolution(pokemon: 'PokemonEntry'):
+    if not isinstance(pokemon, PokemonEntry):
+        return None
+
+    evo = _Evolution(
+        id=pokemon.id,
+        dex=pokemon.dex,
+        region=pokemon.region,
+        slug=pokemon.slug,
+        description=pokemon.description,
+        enabled=pokemon.enabled,
+        catchable=pokemon.catchable,
+        names=pokemon.names,
+        types=pokemon.types,
+        rarity=pokemon.rarity,
+        height=pokemon.height,
+        weight=pokemon.weight,
+        evolutions=pokemon.evolutions,
+        stats=pokemon.stats,
+        image_path=pokemon.image_path,
+        shiny_image_path=pokemon.shiny_image_path
+    )
+    
+    evo.level = _get_evolution(evo.names.en)
+    return evo
+
+def _build_pokemon(data, key):
+    return build_pokemon(_pokemon_by_id(data.get(key))) if data.get(key) is not None else None
+
+def _build_evolution(data, key):
+    pokemon = _build_pokemon(data, key)
+    evo = _get_evolution(pokemon)
+
+    return evo
 
 def build_pokemon(data: Dict[str, Union[str, int , bool]]):
     if data is None:
@@ -71,11 +114,11 @@ def build_pokemon(data: Dict[str, Union[str, int , bool]]):
     height = data['height']
     weight = data['weight']
     evolutions = Evolution(
-        to=build_pokemon(_pokemon_by_id(data.get('evo.to'))) if data.get('evo.to') is not None else None,
+        to=_build_evolution(data, 'evo.to'),
         _from=_pokemons.get(data.get('evo.from')),
-        mega=data.get('evo.mega'),
-        mega_x=data.get('evo.mega_x'),
-        mega_y=data.get('evo.mega_y')
+        mega=_build_pokemon(data, 'evo.mega'),
+        mega_x=_build_pokemon(data, 'evo.mega_x'),
+        mega_y=_build_pokemon(data, 'evo.mega_y')
     )
     stats = Stats(
         hp=data['hp'],
@@ -128,7 +171,43 @@ def _read_pokemons() -> Tuple[Dict, ...]:
         pokemon['name.en']: pokemon for pokemon in pokemons
     }
 
-    return by_id, by_dex, by_slug, by_name_en, {}, {}, {}, {}
+    _by_name_ja = []
+    for pokemon in pokemons:
+        if pokemon.get('name.ja') is not None:
+            _by_name_ja.append(pokemon)
+
+    _by_name_ja_r = []
+    for pokemon in pokemons:
+        if pokemon.get('name.ja_r') is not None:
+            _by_name_ja_r.append(pokemon)
+
+    _by_name_ja_t = []
+    for pokemon in pokemons:
+        if pokemon.get('name.ja_t') is not None:
+            _by_name_ja_t.append(pokemon)
+
+    _by_name_fr = []
+    for pokemon in pokemons:
+        if pokemon.get('name.fr') is not None:
+            _by_name_fr.append(pokemon)
+
+    by_name_ja = {
+        pokemon.get('name.ja'): pokemon for pokemon in _by_name_ja
+    }
+
+    by_name_ja_r = {
+        pokemon.get('name.ja_r'): pokemon for pokemon in _by_name_ja_r
+    }
+
+    by_name_ja_t = {
+        pokemon.get('name.ja_t'): pokemon for pokemon in _by_name_ja_t
+    }
+
+    by_name_fr = {
+        pokemon.get('name.fr'): pokemon for pokemon in _by_name_fr
+    }
+
+    return by_id, by_dex, by_slug, by_name_en, by_name_fr, by_name_ja, by_name_ja_r, by_name_ja_t
 
 def get_pokemons():
     id, dex, slug, en, fr, ja, ja_r, ja_t = _read_pokemons()
@@ -190,9 +269,10 @@ class Pokedex:
             if val:
                 return val
 
-            print(val, id)
             val = self.dex.get(id)
             return val
+
+        id = id.title()
 
         val = self.slug.get(id)
         if val:
@@ -201,6 +281,21 @@ class Pokedex:
         val = self.en.get(id)
         if val:
             return val
+
+        val = self.fr.get(id)
+        if val:
+            return val
+
+        val = self.ja.get(id)
+        if val:
+            return val
+
+        val = self.ja_r.get(id)
+        if val:
+            return val
+
+        val = self.ja_t.get(id)
+        return val
 
     def __repr__(self) -> str:
         return '<Pokedex entries={0.entries}>'.format(self)
@@ -225,7 +320,15 @@ class PokemonEntry:
     shiny_image_path: str
 
     def __repr__(self) -> str:
-        return '<PokemonEntry id={0.id} dex={0.dex} region={0.region!r} slug={0.slug!r}>'.format(self)
+        attrs = ('id', 'dex', 'region', 'slug', 'height', 'weight', 'names', 'types', 'rarity')
+        repr = ['<PokemonEntry']
+
+        for attr in attrs:
+            val = getattr(self, attr)
+            repr.append(f'{attr}={val!r}')
+
+        repr.append('>')
+        return ' '.join(repr)
 
 @dataclasses.dataclass
 class Names:
@@ -236,8 +339,15 @@ class Names:
     de: str
     fr: str
 
+    def __iter__(self):
+        self._iter = iter([self.ja, self.ja_r, self.ja_t, self.fr, self.en])
+        return self
+
+    def __next__(self):
+        return next(self._iter)
+
     def __repr__(self) -> str:
-        return '<Names en={0.en!r} fr={0.fr!r} ja={0.ja!r}>'.format(self)
+        return '<Names en={0.en!r} fr={0.fr!r} ja={0.ja!r} ja_r={0.ja_r!r} ja_t={0.ja_t!r}>'.format(self)
 
 @dataclasses.dataclass
 class Types:
@@ -273,11 +383,30 @@ class Stats:
     spdef: int
     speed: int
 
+    def __repr__(self) -> str:
+        return '<Stats hp={0.hp} atk={0.atk} defense={0.defense} spatk={0.spatk} spdef={0.spdef} speed={0.speed}>'.format(self)
+
 @dataclasses.dataclass
 class Evolution:
-    to: 'PokemonEntry'
+    to: '_Evolution'
     _from: 'PokemonEntry'
     mega: 'PokemonEntry'
     mega_x: 'PokemonEntry'
     mega_y: 'PokemonEntry'
 
+    def __repr__(self) -> str:
+        attrs = ('to', '_from', 'mega', 'mega_x', 'mega_y')
+        repr = ['<Evolution']
+
+        for attr in attrs:
+            val = getattr(self, attr)
+            if not val:
+                val = 'None'
+            else:
+                val = str(val.id)
+
+            repr.append(f'{attr}={val}')
+        return ' '.join(repr) + '>'
+
+class _Evolution(PokemonEntry):
+    level: int

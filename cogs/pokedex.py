@@ -14,16 +14,16 @@ class Pokedex(commands.Cog):
     async def _pokedex(self, ctx: Context, *, dex: Union[str, int]):
         shiny = False
 
-        if isinstance(dex, str) and dex.lower().startswith('shiny '):
+        if isinstance(dex, str):
             shiny = True
-            dex = dex.strip('shiny ')
+            dex = dex.lower().removeprefix('shiny ')
 
-        print(dex.title())
 
-        pokemon = self.bot.pokedex.get(dex.title())
+        pokemon = self.bot.pokedex.get(dex)
         if not pokemon:
+            matches = ', '.join(self.bot.get_close_matches(dex))
             return await ctx.send(
-                content='Pokémon not found.'
+                content=f'Pokémon not found. Did you mean {matches}?'
             )
     
         name = pokemon.names.en.title()
@@ -38,9 +38,15 @@ class Pokedex(commands.Cog):
         stats = [f'**{k}**: {v}' for k, v in stats.items()]
         types = ', '.join(type.title() for type in pokemon.types if type is not None)
 
-        embed = discord.Embed(title=f'#{pokemon.dex} {name}')
-        embed.description = f'**Types**: {types}\n\n'
+        names = [
+            f':flag_jp: {pokemon.names.ja}, {pokemon.names.ja_r}, {pokemon.names.ja_t}',
+            f':flag_fr: {pokemon.names.fr}'
+        ]
 
+        embed = discord.Embed(title=f'#{pokemon.dex} {name}')
+        embed.description = '\n'.join(names) + '\n\n'
+
+        embed.description += f'**Types**: {types}\n\n'
         embed.description += '\n'.join(stats)
 
         await ctx.send_with_image(embed=embed, pokemon=pokemon, shiny=shiny)

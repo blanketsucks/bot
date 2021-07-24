@@ -2,7 +2,7 @@ import discord
 from discord.ext import commands
 
 from bot import Pokecord
-from utils import database
+import database
 
 class Shop(commands.Cog):
     def __init__(self, bot: Pokecord) -> None:

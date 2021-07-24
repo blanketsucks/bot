@@ -17,7 +17,7 @@ class Context(commands.Context):
 
         return await self.send(embed=embed)
 
-    async def send_with_image(self, *args, pokemon, shiny, **kwargs):
+    async def send_with_image(self, *args, pokemon, shiny=False, **kwargs):
         embed: discord.Embed = kwargs.pop('embed')
         path = pokemon.image_path
         if shiny:

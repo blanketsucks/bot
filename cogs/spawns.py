@@ -1,18 +1,17 @@
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 import discord
 from discord.ext import commands
 import asyncio
 import random
 
-from utils import calc
-from bot import Pokecord
-from wrapper.pokemons import Pokemon
+from utils import calc, Context
+from bot import Pokecord, SpawnRates, Rarity
 
 class Spawns(commands.Cog):
     def __init__(self, bot: Pokecord) -> None:
         self.bot = bot
 
-        self.spawns: Dict[int, Pokemon] = {}
+        self.spawns: Dict[int, Any] = {}
 
     async def _sleep(self):
         await asyncio.sleep(30.0)
@@ -33,13 +32,14 @@ class Spawns(commands.Cog):
             return await ctx.send('No pokémons available')
         
         pokemon = self.spawns.get(ctx.channel.id)
+        names = (n.lower() for n in pokemon.names)
 
-        if name.lower() == pokemon.name:
+        if name.lower() in names:
             level = random.randint(1, 50)
             await ctx.reply(f'You caught a level {level} {name.lower()}!!')
 
             user = await self.bot.pool.get_user(ctx.author.id)
-            await user.add_pokemon(name, level, pokemon.base_experience)
+            await user.add_pokemon(name, level, 0)
 
             self.spawns.pop(ctx.channel.id, None)
             return
@@ -79,12 +79,11 @@ class Spawns(commands.Cog):
     
     @commands.command(name='spawn')
     @commands.is_owner()
-    async def __spawn(self, ctx: commands.Context, *, name: str):
+    async def __spawn(self, ctx: Context, *, name: str):
         def check(m):
             return m.channel == ctx.channel and m.author == ctx.author
 
-        pokemon, _ = await self.bot.fetch_pokemon(name)
-        pokemon.name = self.bot._parse_pokemon(pokemon.name)
+        pokemon = self.bot.pokedex.get(name)
 
         if pokemon is None:
             return await ctx.send('Not found.')
@@ -92,15 +91,8 @@ class Spawns(commands.Cog):
         embed = discord.Embed()
         embed.title = 'Use p!catch <pokémon name> to catch the following pokémon.'
 
-        file = None
-        embed.set_image(url=pokemon.sprite.front)
-
-        if name.lower() == 'eternamax eternatus':
-            file = discord.File(r"C:\Users\Dell\Desktop\Python\pog\data\img\eternamax.webp", filename="image.png")
-            embed.set_image(url="attachment://image.png")
-
         waiter = self.bot.loop.create_task(coro=self._sleep())
-        message = await ctx.send(embed=embed, file=file)
+        message = await ctx.send_with_image(embed=embed, pokemon=pokemon)
 
         self.spawns[ctx.channel.id] = pokemon
         await self._wait(message, waiter)
@@ -113,54 +105,50 @@ class Spawns(commands.Cog):
 
         conditions = [
             message.guild is not None,
-            calc.chance(self.bot.global_spawn_chance),
+            calc.chance(SpawnRates.GLOBAL),
             guild is not None,
             not message.author.bot
         ]
         return all(conditions)
 
     def check_rarity(self):
-        rarity = 'common'
+        rarity = Rarity.COMMON
 
-        if calc.chance(self.bot.ub_spawn_rate):
-            rarity = 'ub'
+        if calc.chance(SpawnRates.ULTRA_BEAST):
+            rarity = Rarity.ULTRA_BEAST
 
-        if calc.chance(self.bot.mythical_spawn_rate):
-            rarity = 'mythical'
+        if calc.chance(SpawnRates.MYTHICAL):
+            rarity = Rarity.MYTHICAL
 
-        if calc.chance(self.bot.legendary_spawn_rate):
-            rarity = 'legendary'
+        if calc.chance(SpawnRates.LEGENDARY):
+            rarity = Rarity.LEGENDARY
 
         return rarity
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
-        should = await self.should_spawn(message)
-
-        if should is True:
+        if await self.should_spawn(message):
             rarity = self.check_rarity()
 
-            if rarity == 'common':
+            if rarity is Rarity.COMMON:
                 name = random.choice(self.bot.commons)
 
-            if rarity == 'ub':
+            if rarity is Rarity.ULTRA_BEAST:
                 name = random.choice(self.bot.ultrabeasts)
 
-            if rarity == 'legendary':
+            if rarity is Rarity.LEGENDARY:
                 name = random.choice(self.bot.legendaries)
 
-            if rarity == 'mythical':
+            if rarity is Rarity.MYTHICAL:
                 name = random.choice(self.bot.mythicals)
 
-            pokemon, _ = await self.bot.fetch_pokemon(name)
+            pokemon = self.bot.pokedex.get(name)
             self.bot.dispatch('pokemon_spawn', pokemon, message.channel)
 
-            pokemon.name = self.bot._parse_pokemon(pokemon.name)
-
             embed = discord.Embed(title='Use p!catch <pokémon name> to catch the following pokémon.')
-            embed.set_image(url=pokemon.sprite.front)
+            ctx = await self.bot.get_context(message)
 
-            message = await message.channel.send(embed=embed)
+            message = await ctx.send_with_image(embed=embed, pokemon=pokemon)
             waiter = asyncio.ensure_future(self._sleep())
 
             self.spawns[message.channel.id] = pokemon

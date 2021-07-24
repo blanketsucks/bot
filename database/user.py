@@ -1,56 +1,24 @@
-import random
-import asyncpg
-import asyncio
-import json
 from typing import (
-    Any, 
-    Dict, 
-    Generic, 
-    Mapping, 
-    Optional, 
-    Tuple, 
-    List, 
-    TypeVar, 
-    Union, 
-    TYPE_CHECKING,
-    Generator
+    Mapping,
+    Any,
+    Union,
+    Optional,
+    Tuple,
+    List,
+    Dict,
+    TYPE_CHECKING
 )
+import json
 import discord
+import random
 
-from .calc import get_ivs, _round
+from utils.calc import _round, get_ivs
+from .model import Model
+from .market import Listings
 
 if TYPE_CHECKING:
-    from bot import Pokecord
+    from .database import Pokecord
 
-_T = TypeVar('_T')
-
-class AsyncIterator(Generic[_T]):
-    def __init__(self, future: asyncio.Future[List], pool: 'Pool', bot: 'Pokecord') -> None:
-        self.future = future
-        self.pool = pool
-        self.bot = bot
-        self.records = []
-        self.index = 0
-
-    def __await__(self) -> Generator[Any, None, List[_T]]:
-        return self.future.__await__()
-
-    def __aiter__(self):
-        return self
-
-    async def __anext__(self) -> _T:
-        await self.future
-
-        if self.future.done():
-            self.records = self.future.result()
-
-        try:
-            record = self.records[self.index]
-            return record
-        except IndexError:
-            raise StopAsyncIteration
-        finally:
-            self.index += 1
 
 class Nature:
     def __init__(self, data: Mapping[str, Any], name: str) -> None:
@@ -95,7 +63,7 @@ class Pokemon:
         self.bot = bot
         self.user = user
 
-        self._nature = self.bot.natures[data['nature']]
+        self._nature = data['nature']
 
         self.name: str = data['name']
         self.id: int = data['id']
@@ -118,29 +86,7 @@ class Pokemon:
     def data(self):
         return {'pokemon': self._data}
 
-class Model:
-    def __init__(self, record: asyncpg.Record, pool: 'Pool', bot: 'Pokecord') -> None:
-        self.record = record
-        self.pool = pool
-        self.bot = bot
-
-    def __repr__(self) -> str:
-        name = self.__class__.__name__
-        return f'<{name} id={self.id}>'
-
-    @property
-    def id(self):
-        name = self.__class__.__name__.lower()
-        return self.record[name + '_id']
-
-    async def fetch(self):
-        raise NotImplementedError
-
-    async def refetch(self):
-        raise NotImplementedError
-
 class User(Model):
-
     @property
     def pokemons(self) -> List[Pokemon]:
         return [Pokemon(pokemon['pokemon'], self.bot, self) for pokemon in json.loads(self.record['pokemons'])]
@@ -200,6 +146,12 @@ class User(Model):
     def get_selected(self) -> Tuple[Optional[Pokemon], List[Pokemon]]:
         return self.get_pokemon_by_id(self.selected)
 
+    def get_pokemon(self, id: Union[str, int]) -> Optional[Pokemon]:
+        if isinstance(id, str):
+            return self.get_pokemon_by_name(id)[0]
+
+        return self.get_pokemon_by_id(id)[0]
+
     def get_pokemon_moves(self, id: Union[int, str]) -> Moves:
         if isinstance(id, str):
             entry, entries = self.get_pokemon_by_name(id)
@@ -223,7 +175,7 @@ class User(Model):
     async def add_pokemon(self, name: str, level: int, exp: int):
         id = await self.get_next_pokemon_id()
         ivs, rounded = get_ivs()
-        copy = self.pokemons.copy()
+        copy = self.entries.copy()
 
         data = {
             'pokemon': {
@@ -400,174 +352,7 @@ class User(Model):
             await conn.execute('UPDATE users SET credits = $1 WHERE user_id = $2', new, self.id)
             return new
 
-class Guild(Model):
-
-    @property
-    def spawn_channel_id(self) -> int:
-        return self.record['channel_id']
-
-    @property
-    def prefix(self) -> str:
-        return self.record['prefix']
-
-    async def fetch(self):
-        guild = self.bot.get_guild(self.id)
-        if not guild:
-            try:
-                guild = await self.bot.fetch_guild(self.id)
-            except (discord.NotFound, discord.HTTPException):
-                guild = None
-
-        return guild
-
-    async def refetch(self):
-        guild = await self.pool.get_guild(self.id)
-        return guild
-
-    async def fetch_spawn_channel(self) -> Optional[discord.TextChannel]:
-        guild = await self.fetch()
-        channel = guild.get_channel(self.spawn_channel_id)
-
-        if not channel:
-            try:
-                channel = await self.bot.fetch_channel(self.spawn_channel_id)
-            except (discord.Forbidden, discord.NotFound, discord.HTTPException):
-                channel = None
-
-        return channel
-
-    async def update_spawn_channel(self, channel_id: int):
+    async def get_market_listings(self):
         async with self.pool.acquire() as conn:
-            await conn.execute('UPDATE guilds SET channel_id = $1 WHERE guild_id = $2', channel_id, self.id)
-            return channel_id
-
-    async def update_prefix(self, prefix: str):
-        async with self.pool.acquire() as conn:
-            await conn.execute('UPDATE guilds SET prefix = $1 WHERE guild_id = $2', prefix, self.id)
-            return prefix
-
-class Pool:
-    def __init__(self, __pool: asyncpg.Pool, __bot: 'Pokecord') -> None:
-        self.__pool = __pool
-        self.bot = __bot
-
-    def acquire(self):
-        return self.__pool.acquire()
-
-    async def close(self):
-        return await self.__pool.close()
-
-    async def execute(self, query: str, *args):
-        async with self.acquire() as conn:
-            ret = await conn.execute(query, *args)
-            return ret
-
-    async def fetch(self, query: str, *args):
-        async with self.acquire() as conn:
-            ret = await conn.fetch(query, *args)
-            return ret
-
-    async def fetchrow(self, query: str, *args):
-        async with self.acquire() as conn:
-            ret = await conn.fetchrow(query, *args)
-            return ret
-
-    async def add_user(self, user_id: int, name: str) -> Optional[bool]:
-        ivs, rounded = get_ivs()
-        data = [
-            {
-                'pokemon': {
-                    'name': name,
-                    'level': 1,
-                    'id': 1,
-                    'exp': 0,
-                    'ivs': {
-                        'rounded': rounded,
-                        'hp': ivs[0],
-                        'attack': ivs[1],
-                        'defense': ivs[2],
-                        'spatk': ivs[3],
-                        'spdef': ivs[4],
-                        'speed': ivs[5]
-                    },
-                    'moves': {
-                        '1': 'tackle',
-                        '2': None,
-                        '3': None,
-                        '4': None
-                    },
-                    'nature': random.choice(list(self.bot.natures.keys()))
-                }
-            }
-        ]
-        
-        async with self.acquire() as conn:
-            user = await conn.fetchrow('SELECT * from users WHERE user_id = $1', user_id)
-            if not user:
-                await conn.execute(
-                    'INSERT INTO users(credits, pokemons, current_id, user_id, selected) VALUES ($1, $2, $3, $4, $5)',
-                    100, json.dumps(data), 1, user_id, 1)
-                return
-
-            return True
-
-    async def get_user(self, user_id: int) -> User:
-        async with self.acquire() as conn:
-            user = await conn.fetchrow('SELECT * FROM users WHERE user_id = $1', user_id)
-            if not user:
-                return None
-
-            return User(user, self, self.bot)
-
-    async def _users(self) -> List[User]:
-        records = await self.fetch('SELECT * FROM users')
-        users = []
-
-        for record in records:
-            user = User(record, self, self.bot)
-            users.append(user)
-
-        return users
-
-    def users(self) -> AsyncIterator[User]:
-        future = asyncio.ensure_future(self._users())
-        return AsyncIterator(future, self, self.bot)
-
-    async def add_guild(self, guild_id: int, channel_id: int=None, prefix: str='p!') -> None:
-        async with self.acquire() as conn:
-            guild = await conn.fetchrow('SELECT * from guilds WHERE guild_id = $1', guild_id)
-            query = ('INSERT INTO guilds(guild_id, prefix) VALUES ($1, $2)', guild_id, prefix)
-
-            if channel_id:
-                query = ('INSERT INTO guilds(guild_id, channel_id, prefix VALUES($1, $2, $3)', guild_id, channel_id, prefix)
-
-            if not guild:
-                await conn.execute(*query)
-
-            return None
-
-    async def get_guild(self, guild_id: int) -> Guild:
-        async with self.acquire() as conn:
-            guild = await conn.fetchrow('SELECT * FROM guilds WHERE guild_id = $1', guild_id)
-            if not guild:
-                return None
-
-            return Guild(guild, self, self.bot)
-
-    async def _guilds(self) -> List[Guild]:
-        records = await self.fetch('SELECT * FROM guilds')
-        guilds = []
-
-        for record in records:
-            guild = Guild(record, self, self.bot)
-            guilds.append(guild)
-
-        return guilds
-
-    def guilds(self) -> AsyncIterator[Guild]:
-        future = asyncio.ensure_future(self._guilds())
-        return AsyncIterator(future, self, self.bot)
-
-async def connect(dns: str, *, bot: 'Pokecord'):
-    pool = await asyncpg.create_pool(dns)
-    return Pool(pool, bot)
+            listings = await conn.fetchrow('SELECT * FROM market WHERE user_id = $1', self.id)
+            return Listings(listings, self.pool, self.bot, self)
