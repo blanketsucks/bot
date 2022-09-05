@@ -81,7 +81,7 @@ class Pokemons(commands.Cog):
         await ctx.send(embed=embed, file=file)
 
     @commands.command()
-    async def select(self, ctx: commands.Context, *, pokemon: UserPokemon):
+    async def select(self, ctx: Context, *, pokemon: UserPokemon):
         if pokemon.is_selected():
             return await ctx.send('This pokemon is already selected.')
 
@@ -96,7 +96,7 @@ class Pokemons(commands.Cog):
         await ctx.send(f'Changed nickname of {old} to {nickname}.')
 
     @commands.command()
-    async def starter(self, ctx: commands.Context, *, name: Optional[str]):
+    async def starter(self, ctx: Context, *, name: Optional[str]):
         user = await self.bot.pool.get_user(ctx.author.id)
         if user:
             return await ctx.send('You already have a starter.')

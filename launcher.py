@@ -7,7 +7,6 @@ from src.bot import Pokecord
 from src import database
 import config
 
-
 async def main():
     bot = Pokecord()
 

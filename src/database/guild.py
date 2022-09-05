@@ -8,8 +8,8 @@ from .model import RecordModel
 class Guild(RecordModel):
     
     @property
-    def spawn_channel_id(self) -> int:
-        return self.record['channel_id']
+    def spawn_channel_id(self) -> Optional[int]:
+        return self.record['spawn_channel']
 
     @property
     def prefix(self) -> str:
@@ -31,6 +31,9 @@ class Guild(RecordModel):
     async def fetch_spawn_channel(self) -> Optional[discord.TextChannel]:
         guild = await self.fetch()
         if not guild:
+            return None
+
+        if not self.spawn_channel_id:
             return None
 
         channel = guild.get_channel(self.spawn_channel_id)

@@ -15,11 +15,21 @@ class Spawns(commands.Cog):
         self.bot = bot
         self.spawns: Dict[int, ChannelSpawn] = {}
 
-    def store_spawn(self, channel: int, pokemon: PokedexEntry) -> asyncio.Event:
+    def store_spawn(self, channel_id: int, pokemon: PokedexEntry) -> asyncio.Event:
         event = asyncio.Event()
-        self.spawns[channel] = (pokemon, event)
+        self.spawns[channel_id] = (pokemon, event)
 
         return event
+
+    async def wait(self, channel_id: int, pokemon: PokedexEntry) -> None:
+        event = self.store_spawn(channel_id, pokemon)
+
+        try:
+            await asyncio.wait_for(event.wait(), timeout=Pokecord.CHANNEL_SPAWN_TIMEOUT)
+        except asyncio.TimeoutError:
+            pass
+
+        self.spawns.pop(channel_id)
 
     @commands.command()
     async def catch(self, ctx: Context, *, name: str):
@@ -47,19 +57,13 @@ class Spawns(commands.Cog):
         if pokemon is None:
             return await ctx.send('Not found.')
 
-        embed = discord.Embed()
-        embed.title = 'Use p!catch <pokémon name> to catch the following pokémon.'
+        embed = discord.Embed(title='Use p!catch <pokémon name> to catch the following pokémon.')
+        embed.set_image(url='attachment://pokemon.png')
+        
+        file = discord.File(pokemon.image, filename='pokemon.png')
+        await ctx.send(embed=embed, file=file)
 
-        embed.set_image(url=pokemon.image)
-        await ctx.send(embed=embed)
-
-        event = self.store_spawn(ctx.channel.id, pokemon)
-        try:
-            await asyncio.wait_for(event.wait(), timeout=60)
-        except asyncio.TimeoutError:
-            pass
-
-        self.spawns.pop(ctx.channel.id, None)
+        await self.wait(ctx.channel.id, pokemon)
 
     async def should_spawn(self, message: discord.Message):
         if not message.guild:
@@ -101,14 +105,7 @@ class Spawns(commands.Cog):
             embed.set_image(url=pokemon.image)
 
             await message.channel.send(embed=embed)
-            event = self.store_spawn(message.channel.id, pokemon)
+            await self.wait(message.channel.id, pokemon)
             
-            try:
-                await asyncio.wait_for(event.wait(), timeout=Pokecord.CHANNEL_SPAWN_TIMEOUT)
-            except asyncio.TimeoutError:
-                pass
-
-            self.spawns.pop(message.channel.id, None)
-
 async def setup(bot: Pokecord):
     await bot.add_cog(Spawns(bot))

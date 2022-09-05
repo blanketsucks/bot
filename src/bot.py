@@ -53,8 +53,9 @@ class Pokecord(commands.Bot):
         super().__init__(command_prefix='p!', intents=discord.Intents.all())
 
         self.load_data()
+
         self.ignored_commands = ('moves', 'pokedex', 'dex', 'starter')
-        # self.add_check(self.starter_check, call_once=True)
+        self.add_check(self.starter_check, call_once=True)
 
     @functools.lru_cache(maxsize=256)
     def get_close_matches(self, name: str):
@@ -112,9 +113,10 @@ class Pokecord(commands.Bot):
 
         guild = await self.pool.add_guild(ctx.guild.id)
         if not guild.spawn_channel_id:
-            await ctx.send(
-                content=f'A spawn channel has not been set. Please set it using `{guild.prefix}set <channel>`.'
-            )
+            # await ctx.send(
+            #     content=f'A spawn channel has not been set. Please set it using `{guild.prefix}set <channel>`.'
+            # )
+            ...
 
         if ctx.command.name in self.ignored_commands:
             return True
@@ -122,7 +124,7 @@ class Pokecord(commands.Bot):
         user = await self.pool.get_user(ctx.author.id)
         if not user:
             await ctx.send(
-                f'This operation requires you to have a starter. Please start by inputing `{guild.prefix}starter`.'
+                f'This command requires you to have a starter. Please start by inputing `{guild.prefix}starter`.'
             )
             return False
 
@@ -148,5 +150,4 @@ class Pokecord(commands.Bot):
 
     async def get_context(self, message: discord.Message):
         return await super().get_context(message, cls=Context)
-
     
