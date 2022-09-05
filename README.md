@@ -1,1 +1,2 @@
-# pokecord
+# A bot
+
