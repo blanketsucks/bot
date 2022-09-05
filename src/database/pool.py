@@ -8,6 +8,7 @@ import functools
 from .user import User
 from .guild import Guild
 from .pokemons import EVs, Pokemon, IVs, Moves
+from src.utils import chance
 
 if TYPE_CHECKING:
     from src.bot import Pokecord
@@ -41,10 +42,10 @@ class Pool:
         async with self.acquire() as conn:
             return await conn.fetchrow(query, *args)
 
-    def create_pokemon(self, pokemon_id: int, catch_id: int) -> Pokemon:
+    def create_pokemon(self, pokemon_id: int, catch_id: int, is_shiny: bool) -> Pokemon:
         pokemon = self.bot.pokedex.get_pokemon(pokemon_id)
         if not pokemon:
-            raise ValueError(f'Pokemon {pokemon_id!r} does not exist')
+            raise ValueError(f'Dex entry with id {pokemon_id!r} does not exist')
 
         ivs = IVs.generate()
         evs = EVs.generate()
@@ -53,13 +54,13 @@ class Pool:
         nature = self.bot.generate_nature()
         name = pokemon.default_name
 
-        return Pokemon(pokemon_id, name, 1, 0, ivs, evs, moves, nature, catch_id)
+        return Pokemon(pokemon_id, name, 1, 0, ivs, evs, moves, nature, catch_id, is_shiny)
 
     async def add_user(self, user_id: int, pokemon_id: int) -> User:
         async with self.acquire() as conn:
             record = await conn.fetchrow('SELECT * from users WHERE id = $1', user_id)
             if not record:
-                entry = self.create_pokemon(pokemon_id, 1)
+                entry = self.create_pokemon(pokemon_id, 1, chance(8192))
 
                 query = 'INSERT INTO users(id, pokemons) VALUES($1, $2)'
                 data = {entry.catch_id: entry.to_dict()}

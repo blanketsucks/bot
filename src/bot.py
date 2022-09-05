@@ -1,7 +1,7 @@
 from __future__ import annotations
 import functools
 
-from typing import ClassVar, List, NamedTuple
+from typing import ClassVar, Dict, List, NamedTuple
 from discord.ext import commands
 import json
 import aiohttp
@@ -40,6 +40,10 @@ class Nature(NamedTuple):
     speed: int
     summary: str
 
+class LevelInformation(NamedTuple):
+    needed: int
+    total: int
+
 class PosixFlags(commands.FlagConverter, prefix='--', delimiter=' '):
     pass
 
@@ -48,6 +52,7 @@ class Pokecord(commands.Bot):
 
     pool: database.Pool
     session: aiohttp.ClientSession
+    levels: Dict[int, LevelInformation]
 
     def __init__(self):
         super().__init__(command_prefix='p!', intents=discord.Intents.all())
@@ -94,7 +99,11 @@ class Pokecord(commands.Bot):
             self.starters: List[str] = json.load(starters)
 
         with open(LEVELS, 'r') as levels:
-            self.levels = json.load(levels)
+            levels = json.load(levels)
+            self.levels = {
+                int(key): LevelInformation(value['needed'], value['total'])
+                for key, value in levels.items()
+            }
 
         with open(NATURES, 'r') as natures:
             data = json.load(natures)
@@ -105,6 +114,9 @@ class Pokecord(commands.Bot):
 
         self.pokedex = Pokedex()
         print_with_color('{green}[INFO]{reset} Loaded pokedex data.')
+
+    def get_needed_exp(self, level: int) -> int:
+        return self.levels[level].needed
 
     async def starter_check(self, ctx: Context):
         assert ctx.command and ctx.guild
@@ -124,7 +136,7 @@ class Pokecord(commands.Bot):
         user = await self.pool.get_user(ctx.author.id)
         if not user:
             await ctx.send(
-                f'This command requires you to have a starter. Please start by inputing `{guild.prefix}starter`.'
+                f'This command requires you to have a pokémon. Please start by invoking `{guild.prefix}starter`.'
             )
             return False
 
@@ -150,4 +162,7 @@ class Pokecord(commands.Bot):
 
     async def get_context(self, message: discord.Message):
         return await super().get_context(message, cls=Context)
+
+    async def on_command_error(self, context: Context, exception: commands.CommandError, /) -> None:
+        raise getattr(exception, 'original', exception)
     

@@ -1,14 +1,15 @@
-import itertools
+import pathlib
 from typing import Optional, List
 from discord.ext import commands, menus
 import discord
 
-from src.utils import Context
+from src.utils import Context, chunk
 from src.database.user import UserPokemon
 from src.bot import Pokecord, PosixFlags
 
 class PokemonFlags(PosixFlags):
     level: Optional[int]
+    name: Optional[str] = commands.flag(name='name', aliases=['n'])
 
 class PokemonsSource(menus.ListPageSource):
     def __init__(self, entries: List[UserPokemon]):
@@ -16,16 +17,19 @@ class PokemonsSource(menus.ListPageSource):
 
     async def format_page(self, menu: menus.MenuPages, entries: List[UserPokemon]):
         offset = menu.current_page * self.per_page
-        embed = discord.Embed(title=f'Pokemon. Showing a total of {len(self.entries)} entries.', color=0x00ff00)
+        embed = discord.Embed(color=0x36E3DD)
 
         description = []
-
         for i, entry in enumerate(entries, start=offset):
-            ret = f"{i+1}. **{entry.nickname}** | Level: {entry.level} | IVs: {entry.ivs.round()}"
+            ret = f'{i+1}. '
+            if entry.shiny:
+                ret += '✨ '
+
+            ret += f'**{entry.nickname}** | Level: {entry.level} | IVs: {entry.ivs.round()}%'
             description.append(ret)
 
-        embed.description = "\n".join(description)
-        embed.set_footer(text=f"Page {menu.current_page + 1}/{self.get_max_pages()}. Use the reactions to navigate.")
+        embed.description = '\n'.join(description)
+        embed.set_footer(text=f'Page {menu.current_page + 1}/{self.get_max_pages()}. Use the reactions to navigate.')
 
         return embed
 
@@ -33,32 +37,40 @@ class Pokemons(commands.Cog):
     def __init__(self, bot: Pokecord) -> None:
         self.bot = bot
 
-    @commands.command()
+    @commands.command(aliases=['p'])
     async def pokemons(self, ctx: Context, *, flags: PokemonFlags):
         user = ctx.pool.user
         entries = list(user.pokemons.values())
         
         if flags.level is not None:
             entries = user.find(level=flags.level)
+        if flags.name is not None:
+            entries = user.find(nickname=flags.name)
+
+        if not entries:
+            return await ctx.send('No results found.')
 
         source = PokemonsSource(entries)
         pages = menus.MenuPages(source)
 
         await pages.start(ctx)
     
-    @commands.command('info')
-    async def _info(self, ctx: Context, *, pokemon: Optional[UserPokemon]):
+    @commands.command(aliases=['i'])
+    async def info(self, ctx: Context, *, pokemon: Optional[UserPokemon]):
         if pokemon is None:
             pokemon = ctx.pool.user.pokemons[ctx.pool.user.selected]
 
         rounded = pokemon.ivs.round()
-        types = ', '.join([type.capitalize() for type in pokemon.dex.types if type is not None])
+        total = self.bot.get_needed_exp(pokemon.level)
 
-        total = self.bot.levels[str(pokemon.level)]['needed']
-        embed = discord.Embed(title=pokemon.nickname.title())
+        title = ''
+        if pokemon.shiny:
+            title += '✨ '
+        
+        title += f'Level {pokemon.level} {pokemon.nickname.title()}'
+        embed = discord.Embed(title=title, color=0x36E3DD)
 
         embed.description = f'**Level**: {pokemon.level} | **EXP**: {pokemon.exp}/{total}\n'
-        embed.description += f'**Types**: {types}\n'
         embed.description += f'**Nature**: {pokemon.nature.name}\n\n'
 
         stats = {
@@ -77,7 +89,13 @@ class Pokemons(commands.Cog):
         embed.set_footer(text=f'{pokemon.catch_id}/{len(pokemon.user.entries)} Pokémons')
         embed.set_image(url='attachment://pokemon.png')
 
-        file = discord.File(pokemon.dex.image, filename='pokemon.png')
+        image: pathlib.Path[str]
+        if pokemon.shiny:
+            image = pokemon.dex.images.shiny
+        else:
+            image = pokemon.dex.images.default
+
+        file = discord.File(image, filename='pokemon.png')
         await ctx.send(embed=embed, file=file)
 
     @commands.command()
@@ -88,7 +106,7 @@ class Pokemons(commands.Cog):
         await pokemon.select()
         await ctx.send(f'Changed selected pokémon to {pokemon.nickname.title()}.')
 
-    @commands.command()
+    @commands.command(aliases=['nick'])
     async def nickname(self, ctx: Context, pokemon: UserPokemon, nickname: str):
         old = pokemon.nickname
         await pokemon.edit(nickname=nickname)
@@ -102,16 +120,18 @@ class Pokemons(commands.Cog):
             return await ctx.send('You already have a starter.')
 
         if not name:
-            embed = discord.Embed(title='Picking a starter.')
+            embed = discord.Embed(title='Picking a starter.', color=0x36E3DD)
 
             embed.description = 'In order to start your journey as a Pokémon trainer, you have to select a starter.\n'
             embed.description += 'Please pick a starter from the list below by using `p!starter <name>`'
 
-            for generation, pokemons in enumerate(itertools.tee(self.bot.starters, 3), 1):
+            for generation, pokemons in enumerate(chunk(3, self.bot.starters), 1):
                 embed.description += f'\n\n**Generation {generation}**\n'
-                embed.description += '\n'.join(f'{i+1}. {pokemon}' for i, pokemon in enumerate(pokemons))
+                embed.description += ' | '.join(pokemons)
             
             embed.set_image(url='https://upload.wikimedia.org/wikipedia/en/b/b1/Hoenn.jpg')
+            embed.set_footer(text='NOTE: You can only choose a single starter.')
+
             return await ctx.send(embed=embed)
 
         if name.capitalize() not in self.bot.starters:

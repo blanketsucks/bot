@@ -1,6 +1,9 @@
-from typing import List, Any
+from typing import Iterable, List, Any, TypeVar, Tuple
 import random
 import enum
+import itertools
+
+T = TypeVar('T')
 
 class Colors(str, enum.Enum):
     red = '\033[1;31m'
@@ -9,6 +12,7 @@ class Colors(str, enum.Enum):
     reset = '\033[0m'
 
 __all__ = (
+    'chunk',
     'sequence',
     'get_health_stat',
     'get_other_stat',
@@ -18,6 +22,15 @@ __all__ = (
     'is_miss',
     'print_with_color'
 )
+
+def chunk(n: int, iterable: Iterable[T]) -> Iterable[Tuple[T, ...]]:
+    it = iter(iterable)
+    while True:
+        chunk = tuple(itertools.islice(it, n))
+        if not chunk:
+            return
+
+        yield chunk
 
 def sequence(a: int, b: int, n: int) -> List[int]:
     return [random.randint(a, b) for _ in range(n)]

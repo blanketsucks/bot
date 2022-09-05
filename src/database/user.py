@@ -144,6 +144,10 @@ class UserPokemon(commands.Converter[Any]):
     @property
     def moves(self) -> Moves:
         return self.entry.moves
+    
+    @property
+    def shiny(self) -> bool:
+        return self.entry.shiny
 
     @property
     def nature(self) -> Nature:
@@ -197,7 +201,7 @@ class UserPokemon(commands.Converter[Any]):
         if level is not None:
             self.data['level'] = level
         if exp is not None:
-            self.data['exp'] += exp
+            self.data['exp'] = exp
         if nature is not None:
             self.data['nature'] = nature
         if moves is not None:
@@ -207,6 +211,9 @@ class UserPokemon(commands.Converter[Any]):
         
         await self.save()
         return self
+
+    async def add_exp(self, exp: int) -> UserPokemon:
+        return await self.edit(exp=self.exp + exp)
 
     async def release(self) -> None:
         if not self.exists():
@@ -293,9 +300,9 @@ class User(RecordModel):
     def get_selected(self) -> UserPokemon:
         return self.pokemons.get(self.selected) # type: ignore
             
-    async def add_pokemon(self, pokemon_id: int, level: int, exp: int):
+    async def add_pokemon(self, pokemon_id: int, level: int, exp: int, is_shiny: bool):
         id = self.catch_id + 1
-        entry = self.pool.create_pokemon(pokemon_id, id)
+        entry = self.pool.create_pokemon(pokemon_id, id, is_shiny)
 
         entry.level = level
         entry.exp = exp

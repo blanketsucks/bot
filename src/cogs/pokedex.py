@@ -15,15 +15,15 @@ class PokedexSource(ListPageSource):
 
     async def format_page(self, menu: MenuPages, entries: List[PokedexEntry]):
         offset = menu.current_page * self.per_page
-        embed = discord.Embed(title=f'Pokedex. Showing a total of {len(self.entries)} entries.', color=0x00ff00)
+        embed = discord.Embed(title=f'Pokedex. Showing a total of {len(self.entries)} entries.', color=0x36E3DD)
 
         description = []
 
         for i, entry in enumerate(entries, start=offset):
-            description.append(f"{i+1}. **{entry.default_name}**")
+            description.append(f'{i+1}. **{entry.default_name}**')
 
-        embed.description = "\n".join(description)
-        embed.set_footer(text=f"Page {menu.current_page + 1}/{self.get_max_pages()}. Use the reactions to navigate.")
+        embed.description = '\n'.join(description)
+        embed.set_footer(text=f'Page {menu.current_page + 1}/{self.get_max_pages()}. Use the reactions to navigate.')
 
         return embed
 
@@ -31,7 +31,7 @@ class Pokedex(commands.Cog):
     def __init__(self, bot: Pokecord) -> None:
         self.bot = bot
 
-    @commands.command(name='pokedex', aliases=['dex'])
+    @commands.command(name='pokedex', aliases=['dex', 'pd', 'd'])
     async def _pokedex(self, ctx: Context, *, arg: Optional[str]):
         if arg is None:
             source = PokedexSource(self.bot.pokedex.entries)
@@ -89,7 +89,7 @@ class Pokedex(commands.Cog):
             '**Is Form**: {}'.format(entry.is_form),
         ]
 
-        embed = discord.Embed(title=f'#{entry.dex} {name}')
+        embed = discord.Embed(title=f'#{entry.dex} {name}', color=0x36E3DD)
         embed.description = entry.description if entry.description else 'No description.'
         embed.description += '\n\n'
 

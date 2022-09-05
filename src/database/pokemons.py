@@ -72,6 +72,7 @@ class Pokemon:
     moves: Moves
     nature: str
     catch_id: int
+    shiny: bool
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> Pokemon:
@@ -88,7 +89,8 @@ class Pokemon:
             evs=evs,
             moves=moves,
             nature=data['nature'],
-            catch_id=data['catch_id']
+            catch_id=data['catch_id'],
+            shiny=data['shiny']
         )
 
     def to_dict(self) -> Dict[str, Any]:

@@ -54,8 +54,13 @@ class MegaPokemonEvolutions(NamedTuple):
 
 class PokemonEvolutions(NamedTuple):
     to: Optional[int]
+    at: Optional[int]
     from_: Optional[int]
     mega: MegaPokemonEvolutions
+
+class PokemonImages(NamedTuple):
+    default: pathlib.Path[str]
+    shiny: pathlib.Path[str]
 
 class PokedexEntry(commands.Converter[Any]):
     dex: int
@@ -72,13 +77,16 @@ class PokedexEntry(commands.Converter[Any]):
     rarity: PokemonRarity
     catchable: bool
     is_form: bool
-    image: pathlib.Path[str]
+    images: PokemonImages
 
     def __init__(self, **kwargs: Any) -> None:
         for key, value in kwargs.items():
             setattr(self, key, value)
 
-        self.image = pathlib.Path(f'src/assets/{self.id}.png')
+        self.images = PokemonImages(
+            default=pathlib.Path(f'src/assets/{self.id}.png'),
+            shiny=pathlib.Path(f'src/assets/shiny/{self.id}.png')
+        )
 
     def __repr__(self) -> str:
         return f'<PokedexEntry dex={self.dex} id={self.id} region={self.region!r} default_name={self.default_name!r}>'
@@ -226,6 +234,7 @@ class Pokedex:
 
         evolutions = PokemonEvolutions(
             to=data.get('evo.to'),
+            at=data.get('evo.level'),
             from_=data.get('evo.from'),
             mega=mega
         )
