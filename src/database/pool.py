@@ -20,8 +20,8 @@ class Pool:
     async def __aenter__(self) -> Pool:
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        return await self.close()
+    async def __aexit__(self, *args: Any):
+        await self.close()
 
     def acquire(self):
         return self.wrapped.acquire()

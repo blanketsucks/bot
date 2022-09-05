@@ -6,7 +6,6 @@ import asyncpg
 
 if TYPE_CHECKING:
     from .pool import Pool
-    from src.bot import Pokecord
 
 T = TypeVar('T')
 

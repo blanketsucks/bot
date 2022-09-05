@@ -26,19 +26,21 @@ class Guild(RecordModel):
         return guild
 
     async def refetch(self):
-        guild = await self.pool.get_guild(self.id)
-        return guild
+        return await self.pool.get_guild(self.id)
 
     async def fetch_spawn_channel(self) -> Optional[discord.TextChannel]:
         guild = await self.fetch()
-        channel = guild.get_channel(self.spawn_channel_id)
+        if not guild:
+            return None
 
+        channel = guild.get_channel(self.spawn_channel_id)
         if not channel:
             try:
-                channel = await self.bot.fetch_channel(self.spawn_channel_id)
+                channel = await guild.fetch_channel(self.spawn_channel_id)
             except (discord.Forbidden, discord.NotFound, discord.HTTPException):
-                channel = None
+                return None
 
+        assert isinstance(channel, discord.TextChannel)
         return channel
 
     async def update_spawn_channel(self, channel_id: int):
