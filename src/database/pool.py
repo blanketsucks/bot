@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, List, Optional, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 import asyncpg
 import json
 import functools
@@ -17,6 +17,8 @@ class Pool:
     def __init__(self, pool: asyncpg.Pool[asyncpg.Record], bot: Pokecord) -> None:
         self.wrapped = pool
         self.bot = bot
+
+        self.users: Dict[int, User] = {}
 
     async def __aenter__(self) -> Pool:
         return self
@@ -73,33 +75,24 @@ class Pool:
             return User(record, self)
 
     async def get_user(self, user_id: int) -> Optional[User]:
+        if user_id in self.users:
+            return self.users[user_id]
+
         async with self.acquire() as conn:
-            user = await conn.fetchrow('SELECT * FROM users WHERE id = $1', user_id)
-            if not user:
+            record = await conn.fetchrow('SELECT * FROM users WHERE id = $1', user_id)
+            if not record:
                 return None
 
-            return User(user, self)
+            user = User(record, self)
+            self.users[user_id] = user
+            
+            return user
 
-    async def add_guild(
-        self, 
-        guild_id: int, 
-        *,
-        spawn_channel_id: Optional[int] = None, 
-        prefix: Optional[str] = None
-    ) -> Guild:
+    async def add_guild(self, guild_id: int) -> Guild:
         async with self.acquire() as conn:
             record = await conn.fetchrow('SELECT * from guilds WHERE id = $1', guild_id)
             if not record:
-                params: List[Any] = [guild_id]
-                query = 'INSERT INTO guilds(id)'
-
-                if spawn_channel_id is not None:
-                    params.append(spawn_channel_id)
-                if prefix is not None:
-                    params.append(prefix)
-
-                query = 'INSERT INTO guilds(id) VALUES($1)'
-                await conn.execute(query, *params)
+                await conn.execute('INSERT INTO guilds(id) VALUES($1)', guild_id)
 
             record = await conn.fetchrow('SELECT * from guilds WHERE id = $1', guild_id)
 

@@ -5,7 +5,7 @@ import asyncio
 import random
 
 from src.utils.pokedex import PokedexEntry, Rarity
-from src.utils import Context, chance
+from src.utils import Context, chance, title
 from src.bot import Pokecord, SpawnRates
 
 ChannelSpawn = Tuple[PokedexEntry, asyncio.Event, bool]
@@ -29,7 +29,7 @@ class Spawns(commands.Cog):
         except asyncio.TimeoutError:
             pass
 
-        self.spawns.pop(channel_id)
+        self.spawns.pop(channel_id, None)
 
     @commands.command(aliases=['c'])
     async def catch(self, ctx: Context, *, name: str):
@@ -41,11 +41,14 @@ class Spawns(commands.Cog):
 
         if name.casefold() in names:
             level = random.randint(1, 50)
-            await ctx.reply(f'You caught a level {level} {pokemon.default_name.title()}!!')
+            fmt = f'Congratulations! You caught a level {level} {title(pokemon.default_name)}!!'
+            if is_shiny:
+                fmt += '\n\nThese colors seem unusual... ✨'
 
+            await ctx.reply(fmt)
             await ctx.pool.user.add_pokemon(pokemon.id, level, 0, is_shiny)
-            event.set()
 
+            event.set()
             return self.spawns.pop(ctx.channel.id, None)
 
         await ctx.send('Wrong pokémon!')
@@ -83,9 +86,8 @@ class Spawns(commands.Cog):
         if not guild:
             return False
 
-        if guild.spawn_channel_id is not None:
-            if guild.spawn_channel_id != message.channel.id:
-                return False
+        if not guild.spawn_channel_ids:
+            return False
 
         if not chance(SpawnRates.Global):
             return False
@@ -104,18 +106,35 @@ class Spawns(commands.Cog):
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
+        if message.guild is None:
+            return
+
+        guild = await self.bot.pool.get_guild(message.guild.id)
         if await self.should_spawn(message):
             rarity, is_shiny = self.generate_rarity()
+
             pokemon = self.bot.pokedex.random(rarity=rarity)
+            if not pokemon.enabled:
+                return
 
             embed = discord.Embed(title='Use p!catch <pokémon name> to catch the following pokémon.', color=0x36E3DD)
             embed.set_image(url=pokemon.images.default)
 
-            await message.channel.send(embed=embed)
-            await self.wait(message.channel.id, pokemon, is_shiny)
+            assert guild
+            channel_id = random.choice(guild.spawn_channel_ids)
+
+            channel = message.guild.get_channel(channel_id)
+            assert isinstance(channel, discord.TextChannel)
+
+            await channel.send(embed=embed)
+            return await self.wait(channel.id, pokemon, is_shiny)
 
         user = await self.bot.pool.get_user(message.author.id)
         if not user:
+            return
+
+        assert guild
+        if message.channel.id not in guild.exp_channel_ids:
             return
 
         selected = user.get_selected()

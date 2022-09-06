@@ -1,5 +1,4 @@
 from __future__ import annotations
-import functools
 
 from typing import ClassVar, Dict, List, NamedTuple
 from discord.ext import commands
@@ -11,17 +10,11 @@ import importlib
 import difflib
 import sys
 import random
+import functools
 
 from .utils import Pokedex, Context, ContextPool, print_with_color
+from .consts import DATA
 from . import database
-
-EVOLUTIONS = 'src/data/evolutions.json'
-STARTERS = 'src/data/starters.json'
-LEVELS = 'src/data/levels.json'
-ULTRA_BEASTS = 'src/data/ultrabeasts.json'
-NATURES = 'src/data/natures.json'
-MEGAS = 'src/data/megas.json'
-GIGAS = 'src/data/gigantamaxes.json'
 
 class SpawnRates(enum.IntEnum):
     Global = 10000
@@ -92,25 +85,21 @@ class Pokecord(commands.Bot):
         return guild.prefix, self.user.mention
 
     def load_data(self):
-        with open(EVOLUTIONS, 'r') as evolutions:
+        with (DATA / 'evolutions.json').open('r') as evolutions:
             self.evolutions = json.load(evolutions)
 
-        with open(STARTERS, 'r') as starters:
+        with (DATA / 'starters.json').open('r') as starters:
             self.starters: List[str] = json.load(starters)
 
-        with open(LEVELS, 'r') as levels:
+        with (DATA / 'levels.json').open('r') as levels:
             levels = json.load(levels)
             self.levels = {
-                int(key): LevelInformation(value['needed'], value['total'])
-                for key, value in levels.items()
+                int(key): LevelInformation(value['needed'], value['total']) for key, value in levels.items()
             }
 
-        with open(NATURES, 'r') as natures:
-            data = json.load(natures)
-            self.natures = {
-                name: Nature(name, **nature)
-                for name, nature in data.items()
-            }
+        with (DATA / 'natures.json').open('r') as natures:
+            natures = json.load(natures)
+            self.natures = {name: Nature(name, **nature) for name, nature in natures.items()}
 
         self.pokedex = Pokedex()
         print_with_color('{green}[INFO]{reset} Loaded pokedex data.')
@@ -124,7 +113,7 @@ class Pokecord(commands.Bot):
             return True
 
         guild = await self.pool.add_guild(ctx.guild.id)
-        if not guild.spawn_channel_id:
+        if not guild.spawn_channel_ids:
             # await ctx.send(
             #     content=f'A spawn channel has not been set. Please set it using `{guild.prefix}set <channel>`.'
             # )
@@ -163,6 +152,9 @@ class Pokecord(commands.Bot):
     async def get_context(self, message: discord.Message):
         return await super().get_context(message, cls=Context)
 
-    async def on_command_error(self, context: Context, exception: commands.CommandError, /) -> None:
+    async def on_command_error(self, context: Context, exception: commands.CommandError, /):
+        if isinstance(exception, commands.BadArgument):
+            return await context.send(''.join(exception.args))
+
         raise getattr(exception, 'original', exception)
     

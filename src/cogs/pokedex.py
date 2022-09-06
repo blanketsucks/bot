@@ -83,6 +83,7 @@ class Pokedex(commands.Cog):
             '**Height**: {}'.format(entry.height),
             '**Weight**: {}'.format(entry.weight),
             '**Catchable**: {}'.format(entry.catchable),
+            '**Enabled**: {}'.format(entry.enabled),
             '**Legendary**: {}'.format(entry.rarity.legendary),
             '**Mythical**: {}'.format(entry.rarity.mythical),
             '**Ultra Beast**: {}'.format(entry.rarity.ultra_beast),

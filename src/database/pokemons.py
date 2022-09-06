@@ -39,6 +39,10 @@ class IVs(NamedTuple):
     def generate(cls) -> IVs:
         ivs = sequence(0, 31, 6)
         return cls(*ivs)
+
+    @classmethod
+    def max(cls) -> IVs:
+        return cls(hp=31, atk=31, defense=31, spatk=31, spdef=31, speed=31)
     
     def round(self) -> float:
         return round((sum(self) / 186) * 100, 2)
@@ -60,6 +64,9 @@ class EVs(NamedTuple):
         evs = sequence(0, 255, 6)
         return cls(*evs)
 
+    @classmethod
+    def max(cls) -> EVs:
+        return cls(hp=255, atk=255, defense=255, spatk=255, spdef=255, speed=255)
 
 @dataclasses.dataclass
 class Pokemon:

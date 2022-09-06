@@ -1,15 +1,16 @@
 import pathlib
-from typing import Optional, List
+from typing import Iterable, Optional, List
 from discord.ext import commands, menus
 import discord
 
-from src.utils import Context, chunk
+from src.utils import Context, chunk, find, title
 from src.database.user import UserPokemon
 from src.bot import Pokecord, PosixFlags
 
 class PokemonFlags(PosixFlags):
     level: Optional[int]
     name: Optional[str] = commands.flag(name='name', aliases=['n'])
+    nickname: Optional[str] = commands.flag(name='nickname', aliases=['nick'])
 
 class PokemonsSource(menus.ListPageSource):
     def __init__(self, entries: List[UserPokemon]):
@@ -25,7 +26,12 @@ class PokemonsSource(menus.ListPageSource):
             if entry.shiny:
                 ret += '✨ '
 
-            ret += f'**{entry.nickname}** | Level: {entry.level} | IVs: {entry.ivs.round()}%'
+            if entry.has_nickname():
+                ret += f'**{title(entry.dex.default_name)} "{entry.nickname}"** | Level: {entry.level} | IV: {entry.ivs.round()}%'
+            else:
+                ret += f'**{title(entry.dex.default_name)}** | Level: {entry.level} | IV: {entry.ivs.round()}%'
+
+            
             description.append(ret)
 
         embed.description = '\n'.join(description)
@@ -43,9 +49,12 @@ class Pokemons(commands.Cog):
         entries = list(user.pokemons.values())
         
         if flags.level is not None:
-            entries = user.find(level=flags.level)
+            entries = find(entries, lambda poke: poke.level == flags.level)
         if flags.name is not None:
-            entries = user.find(nickname=flags.name)
+            name = flags.name
+            entries = find(entries, lambda poke: poke.dex.default_name.casefold() == name.casefold())
+        if flags.nickname is not None:
+            entries = find(entries, lambda poke: poke.nickname == flags.nickname)
 
         if not entries:
             return await ctx.send('No results found.')
@@ -56,37 +65,46 @@ class Pokemons(commands.Cog):
         await pages.start(ctx)
     
     @commands.command(aliases=['i'])
-    async def info(self, ctx: Context, *, pokemon: Optional[UserPokemon]):
+    async def info(self, ctx: Context, *, pokemon: Optional[UserPokemon] = None):
         if pokemon is None:
             pokemon = ctx.pool.user.pokemons[ctx.pool.user.selected]
 
         rounded = pokemon.ivs.round()
         total = self.bot.get_needed_exp(pokemon.level)
 
-        title = ''
+        _title = ''
         if pokemon.shiny:
-            title += '✨ '
+            _title += '✨ '
         
-        title += f'Level {pokemon.level} {pokemon.nickname.title()}'
-        embed = discord.Embed(title=title, color=0x36E3DD)
+        if pokemon.has_nickname():
+            _title += f'Level {pokemon.level} {title(pokemon.dex.default_name)} "{pokemon.nickname}"'
+        else:
+            _title += f'Level {pokemon.level} {title(pokemon.dex.default_name)}'
 
-        embed.description = f'**Level**: {pokemon.level} | **EXP**: {pokemon.exp}/{total}\n'
+        embed = discord.Embed(title=_title, color=0x36E3DD)
+
+        embed.description = f'**Level**: {pokemon.level}'
+        if pokemon.level != 100:
+            embed.description += f' | **EXP**: {pokemon.exp}/{total}\n'
+        else:
+            embed.description += '\n'
+
         embed.description += f'**Nature**: {pokemon.nature.name}\n\n'
 
         stats = {
             'HP': (pokemon.stats.health, pokemon.ivs.hp),
             'Attack': (pokemon.stats.attack, pokemon.ivs.atk),
             'Defense': (pokemon.stats.defense, pokemon.ivs.defense),
-            'SP-atk': (pokemon.stats.spatk, pokemon.ivs.spatk),
-            'SP-def': (pokemon.stats.spdef, pokemon.ivs.spdef),
+            'Sp. Atk': (pokemon.stats.spatk, pokemon.ivs.spatk),
+            'Sp. Def': (pokemon.stats.spdef, pokemon.ivs.spdef),
             'Speed': (pokemon.stats.speed, pokemon.ivs.speed)
         }
         stats = [f'**{k}**: {v} | IV: {i}/31' for k, (v, i) in stats.items()]
 
         embed.description += '\n'.join(stats)
-        embed.description += f'\n**Total**: {rounded}%'
+        embed.description += f'\n**Total IV**: {rounded}%'
 
-        embed.set_footer(text=f'{pokemon.catch_id}/{len(pokemon.user.entries)} Pokémons')
+        embed.set_footer(text=f'Displaying pokémon {pokemon.catch_id}.')
         embed.set_image(url='attachment://pokemon.png')
 
         image: pathlib.Path[str]
@@ -98,20 +116,47 @@ class Pokemons(commands.Cog):
         file = discord.File(image, filename='pokemon.png')
         await ctx.send(embed=embed, file=file)
 
+    @commands.command(aliases=['bal'])
+    async def balance(self, ctx: Context):
+        await ctx.send(f'Your current balance is {ctx.pool.user.balance.credits}')
+
     @commands.command()
     async def select(self, ctx: Context, *, pokemon: UserPokemon):
         if pokemon.is_selected():
-            return await ctx.send('This pokemon is already selected.')
+            return await ctx.send('This pokémon is already selected.')
 
         await pokemon.select()
         await ctx.send(f'Changed selected pokémon to {pokemon.nickname.title()}.')
 
-    @commands.command(aliases=['nick'])
-    async def nickname(self, ctx: Context, pokemon: UserPokemon, nickname: str):
-        old = pokemon.nickname
-        await pokemon.edit(nickname=nickname)
+    @commands.command()
+    async def release(self, ctx: Context, *pokemons: UserPokemon):
+        if not pokemons:
+            pokemons = (ctx.pool.user.get_selected(),)
 
-        await ctx.send(f'Changed nickname of {old} to {nickname}.')
+        for pokemon in pokemons:
+            await pokemon.release()
+
+        await ctx.send(f'Successfully released {len(pokemons)} pokémons')
+        await ctx.pool.user.reindex()
+
+    @commands.command(aliases=['nick'])
+    async def nickname(
+        self, ctx: Context, pokemons: commands.Greedy[UserPokemon] = None, nickname: Optional[str] = None # type: ignore
+    ):
+        pokemons: Iterable[UserPokemon] # avoids a type ignore in the line below
+        if not pokemons:
+            pokemons = [ctx.pool.user.get_selected()]
+    
+        for pokemon in pokemons:
+            if not nickname:
+                await pokemon.edit(nickname=pokemon.dex.default_name)
+            else:
+                await pokemon.edit(nickname=nickname)
+
+        if not nickname:
+            await ctx.send(f'Reset the nicknames of {len(pokemons)} Pokémons.')
+        else:
+            await ctx.send(f'Changed the nickname of {len(pokemons)} Pokémons to {nickname}.')
 
     @commands.command()
     async def starter(self, ctx: Context, *, name: Optional[str]):

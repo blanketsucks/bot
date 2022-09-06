@@ -2,13 +2,16 @@ from __future__ import annotations
 
 from typing import Any, Callable, Dict, NamedTuple, List, Optional
 from discord.ext import commands
-from src.utils import Context
 import pathlib
 import functools
 import orjson
 import random
 import re
 import enum
+
+from . import utils
+from .context import Context
+from src.consts import DATA
 
 __all__ = (
     'PokedexEntry',
@@ -77,6 +80,7 @@ class PokedexEntry(commands.Converter[Any]):
     rarity: PokemonRarity
     catchable: bool
     is_form: bool
+    enabled: bool
     images: PokemonImages
 
     def __init__(self, **kwargs: Any) -> None:
@@ -139,7 +143,7 @@ class Pokedex:
 
     @property
     def path(self) -> pathlib.Path:
-        return pathlib.Path('src/data/pokedex.json')
+        return DATA / 'pokedex.json'
 
     @property
     def entries(self) -> List[PokedexEntry]:
@@ -172,7 +176,7 @@ class Pokedex:
         return random.choice(self.with_rarity(rarity))
 
     def find(self, predicate: Callable[[PokedexEntry], bool]) -> List[PokedexEntry]:
-        return [pokemon for pokemon in self if predicate(pokemon)]
+        return utils.find(self, predicate)
 
     def with_language(self, language: str) -> Dict[str, PokedexEntry]:
         pokemons = self.find(lambda pokemon: getattr(pokemon.names, language, None) is not None)
@@ -212,7 +216,8 @@ class Pokedex:
             evolutions=self.create_evolutions(row),
             rarity=self.create_rarity(row),
             is_form=row.get('is_form', False),
-            catchable=row.get('catchable', False)
+            catchable=row.get('catchable', False),
+            enabled=row.get('enabled', False)
         )
 
     def create_stats(self, data: Dict[str, Any]) -> PokemonStats:

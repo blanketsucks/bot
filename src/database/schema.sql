@@ -18,5 +18,6 @@ CREATE TABLE IF NOT EXISTS market (
 CREATE TABLE IF NOT EXISTS guilds (
     id BIGINT,
     prefix VARCHAR(15) DEFAULT 'p!',
-    spawn_channel BIGINT DEFAULT NULL
+    spawn_channels BIGINT[],
+    exp_channels BIGINT[]
 );
