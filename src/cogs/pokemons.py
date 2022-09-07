@@ -3,7 +3,7 @@ from typing import Iterable, Optional, List
 from discord.ext import commands, menus
 import discord
 
-from src.utils import Context, chunk, find, title
+from src.utils import Context, chunk, find, title, ConfirmationView
 from src.database.user import UserPokemon
 from src.bot import Pokecord, PosixFlags
 
@@ -67,7 +67,9 @@ class Pokemons(commands.Cog):
     @commands.command(aliases=['i'])
     async def info(self, ctx: Context, *, pokemon: Optional[UserPokemon] = None):
         if pokemon is None:
-            pokemon = ctx.pool.user.pokemons[ctx.pool.user.selected]
+            pokemon = ctx.pool.user.pokemons.get(ctx.pool.user.selected)
+            if not pokemon:
+                return await ctx.send('Please select a pokémon.')
 
         rounded = pokemon.ivs.round()
         total = self.bot.get_needed_exp(pokemon.level)
@@ -118,7 +120,7 @@ class Pokemons(commands.Cog):
 
     @commands.command(aliases=['bal'])
     async def balance(self, ctx: Context):
-        await ctx.send(f'Your current balance is {ctx.pool.user.balance.credits}')
+        await ctx.send(f'Your current balance is {ctx.pool.user.credits}')
 
     @commands.command()
     async def select(self, ctx: Context, *, pokemon: UserPokemon):
@@ -132,6 +134,17 @@ class Pokemons(commands.Cog):
     async def release(self, ctx: Context, *pokemons: UserPokemon):
         if not pokemons:
             pokemons = (ctx.pool.user.get_selected(),)
+
+        view = ConfirmationView()
+        view.message = await ctx.send(
+            'Are you sure you want to release those pokémons? Click on `Confirm` to release them.', view=view
+        )
+
+        await view.wait()
+        await view.message.delete()
+
+        if not view.value:
+            return await ctx.send('Aborted.')
 
         for pokemon in pokemons:
             await pokemon.release()

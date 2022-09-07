@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import Any, Dict, Iterable, List, Optional, TYPE_CHECKING, Sequence
+import uuid
 import asyncpg
 import json
 import functools
@@ -8,6 +9,7 @@ import functools
 from .user import User
 from .guild import Guild
 from .pokemons import EVs, Pokemon, IVs, Moves
+from .items import ShopItem, ShopItemKind
 from src.utils import chance
 
 if TYPE_CHECKING:
@@ -36,6 +38,10 @@ class Pool:
         async with self.acquire() as conn:
             return await conn.execute(query, *args)
 
+    async def executemany(self, query: str, args: Iterable[Sequence[Any]], **kwargs: Any):
+        async with self.acquire() as conn:
+            return await conn.executemany(query, args, **kwargs)
+
     async def fetch(self, query: str, *args) -> List[asyncpg.Record]:
         async with self.acquire() as conn:
             return await conn.fetch(query, *args)
@@ -44,7 +50,7 @@ class Pool:
         async with self.acquire() as conn:
             return await conn.fetchrow(query, *args)
 
-    def create_pokemon(self, pokemon_id: int, catch_id: int, is_shiny: bool) -> Pokemon:
+    def create_pokemon(self, pokemon_id: int, owner_id: int, catch_id: int, is_shiny: bool) -> Pokemon:
         pokemon = self.bot.pokedex.get_pokemon(pokemon_id)
         if not pokemon:
             raise ValueError(f'Dex entry with id {pokemon_id!r} does not exist')
@@ -54,25 +60,38 @@ class Pool:
         moves = Moves.default()
 
         nature = self.bot.generate_nature()
-        name = pokemon.default_name
-
-        return Pokemon(pokemon_id, name, 1, 0, ivs, evs, moves, nature, catch_id, is_shiny)
+        return Pokemon(
+            id=uuid.uuid4(),
+            dex_id=pokemon_id,
+            owner_id=owner_id,
+            nickname=pokemon.default_name,
+            level=1,
+            exp=0,
+            ivs=ivs,
+            evs=evs,
+            moves=moves,
+            nature=nature,
+            catch_id=catch_id,
+            shiny=is_shiny,
+            is_starter=False
+        )
 
     async def add_user(self, user_id: int, pokemon_id: int) -> User:
         async with self.acquire() as conn:
             record = await conn.fetchrow('SELECT * from users WHERE id = $1', user_id)
             if not record:
-                entry = self.create_pokemon(pokemon_id, 1, chance(8192))
+                entry = self.create_pokemon(pokemon_id, user_id, 1, chance(8192))
 
-                query = 'INSERT INTO users(id, pokemons) VALUES($1, $2)'
-                data = {entry.catch_id: entry.to_dict()}
+                entry.is_starter = True
+                await entry.create(self)
 
-                await conn.execute(query, user_id, data)
-
+                await conn.execute('INSERT INTO users(id, pokemons) VALUES($1, $2)', user_id, [str(entry.id)])
                 record = await conn.fetchrow('SELECT * from users WHERE id = $1', user_id)
 
             assert record
-            return User(record, self)
+
+            pokemons = await conn.fetch('SELECT * from pokemons WHERE owner_id = $1', user_id)
+            return User(record, pokemons, self)
 
     async def get_user(self, user_id: int) -> Optional[User]:
         if user_id in self.users:
@@ -83,9 +102,10 @@ class Pool:
             if not record:
                 return None
 
-            user = User(record, self)
+            pokemons = await conn.fetch('SELECT * from pokemons WHERE owner_id = $1', user_id)
+            user = User(record, pokemons, self)
+
             self.users[user_id] = user
-            
             return user
 
     async def add_guild(self, guild_id: int) -> Guild:
@@ -106,15 +126,30 @@ class Pool:
 
         return Guild(record, self)
 
+    async def add_item(self, name: str, description: str, price: int, kind: ShopItemKind):
+        await self.execute(
+            'INSERT INTO items(name, description, price, kind) VALUES($1, $2, $3, $4)',
+            name, description, price, kind
+        )
+
+    async def delete_item(self, id: int) -> None:
+        await self.execute('DELETE FROM items WHERE id = $1', id)
+
+    async def get_item(self, id: int) -> Optional[ShopItem]:
+        record = await self.fetchrow('SELECT * FROM items WHERE id = $1', id)
+        if not record:
+            return None
+
+        return ShopItem.from_record(self, record)
+
+    async def get_all_items(self) -> List[ShopItem]:
+        records = await self.fetch('SELECT * FROM items')
+        return [ShopItem.from_record(self, record) for record in records]
+
     @functools.lru_cache(maxsize=128)
     async def fetch_guilds(self) -> List[Guild]:
         records = await self.fetch('SELECT * FROM guilds')
         return [Guild(record, self) for record in records]
-
-    @functools.lru_cache(maxsize=128)
-    async def fetch_users(self) -> List[User]:
-        records = await self.fetch('SELECT * FROM users')
-        return [User(record, self) for record in records]
 
 async def connect(dns: str, bot: Pokecord):
     async def init(conn: asyncpg.Connection):

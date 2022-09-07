@@ -1,14 +1,14 @@
 from __future__ import annotations
-import asyncio
 
-from typing import Dict, List, NamedTuple, Tuple
+from typing import Dict, List, NamedTuple
 
 import discord
+import asyncio
 from discord.ext import commands
 
 from src.bot import Pokecord
 from src.database import User
-from src.utils import Context, title
+from src.utils import Context, title, ConfirmationView
 from src.database.user import UserPokemon
 from src.database.pokemons import IVs, EVs, Moves
 
@@ -34,29 +34,11 @@ class UserTrade:
     def empty(self) -> bool:
         return self.credits == 0 and len(self.pokemons) == 0
     
-    async def finish(self) -> List[TradedPokemon]:
+    async def finish(self) -> List[UserPokemon]:
         if self.credits:
-            await self.user.balance.decrement(self.credits)
-        
-        traded: List[TradedPokemon] = []
-        for pokemon in self.pokemons:
-            trade = TradedPokemon(
-                level=pokemon.level,
-                exp=pokemon.exp,
-                ivs=pokemon.ivs,
-                evs=pokemon.evs,
-                moves=pokemon.moves,
-                id=pokemon.id,
-                nickname=pokemon.nickname,
-                shiny=pokemon.shiny
-            )
+            await self.user.remove_credits(self.credits)
 
-            traded.append(trade)
-
-            await pokemon.release()
-            # self.user.pokemons.pop(pokemon.catch_id)
-
-        return traded
+        return self.pokemons
 
     def add_credits(self, amount: int) -> None:
         self.credits += amount
@@ -102,40 +84,17 @@ class Trade:
     async def finish(self) -> None:
         traded1 = await self.p1.finish()
         if self.p1.credits:
-            await self.user2.balance.increment(self.p1.credits)
+            await self.user2.add_credits(self.p1.credits)
 
         traded2 = await self.p2.finish()
         if self.p2.credits:
-            await self.user1.balance.increment(self.p2.credits)
+            await self.user1.add_credits(self.p2.credits)
 
         for trade in traded1:
-            await self.user2.add_pokemon(
-                pokemon_id=trade.id,
-                level=trade.level,
-                exp=trade.exp,
-                is_shiny=trade.shiny,
-                ivs=trade.ivs,
-                evs=trade.evs,
-                moves=trade.moves,
-                nickname=trade.nickname
-            )
+            await trade.transfer(self.user2)
 
         for trade in traded2:
-            await self.user1.add_pokemon(
-                pokemon_id=trade.id,
-                level=trade.level,
-                exp=trade.exp,
-                is_shiny=trade.shiny,
-                ivs=trade.ivs,
-                evs=trade.evs,
-                moves=trade.moves,
-                nickname=trade.nickname
-            )
-
-        if traded1:
-            await self.user1.reindex()
-        if traded2:
-            await self.user2.reindex()
+            await trade.transfer(self.user1)
 
 class StoredTrade(NamedTuple):
     trade: Trade
@@ -143,7 +102,7 @@ class StoredTrade(NamedTuple):
     user1: discord.Member
     user2: discord.Member
     lock: asyncio.Lock
-    event: asyncio.Event
+    future: asyncio.Future[bool]
 
 class Trades(commands.Cog):
     def __init__(self, bot: Pokecord):
@@ -184,7 +143,7 @@ class Trades(commands.Cog):
 
                 embed.description += self.format_trade_list(trade.trade.p1)
 
-                embed.description += '\n\n'
+                embed.description += '\n'
             
             if not trade.trade.p2.empty():
                 embed.description += f'**{trade.user2}\'s items**: '
@@ -209,23 +168,23 @@ class Trades(commands.Cog):
         if user.id in self.trades:
             return await ctx.send('That user is already inside a trade.')
 
-        msg = await ctx.send(f'{user.mention}, {ctx.author.mention} wants to trade with you. Type `accept` to accept the trade.')
+        view = ConfirmationView()
+        view.message = await ctx.send(
+            f'{user.mention}, {ctx.author.mention} wants to trade with you. Click on `Confirm` to accept the trade.',
+            view=view
+        )
 
-        try:
-            def check(m: discord.Message):
-                return (m.author == user and m.channel == ctx.channel and m.content.casefold() == 'accept'.casefold())
-
-            await self.bot.wait_for('message', check=check, timeout=30)
-        except asyncio.TimeoutError:
+        await view.wait()
+        if not view.value:
             return await ctx.send('Aborted.')
 
-        await msg.delete()
+        await view.message.delete()
         message = await ctx.send('Starting trade...')
 
         lock = asyncio.Lock()
-        event = asyncio.Event()
+        future = self.bot.loop.create_future()
 
-        trade = StoredTrade(Trade(ctx.pool.user, user1), message, ctx.author, user, lock, event)
+        trade = StoredTrade(Trade(ctx.pool.user, user1), message, ctx.author, user, lock, future)
 
         self.trades[user.id] = trade
         self.trades[ctx.author.id] = trade
@@ -233,11 +192,22 @@ class Trades(commands.Cog):
         await asyncio.sleep(1)
         await self.refresh(trade)
 
-        await event.wait()
+        try:
+            await asyncio.wait_for(future, timeout=Pokecord.TRADE_TIMEOUT)
+        except asyncio.TimeoutError:
+            return await ctx.send('Trade timeout.')
+
+        result = future.result()
+        if not result:
+            return await ctx.send('Aborted.')
 
         self.trades.pop(ctx.author.id); self.trades.pop(user.id)
 
         await trade.trade.finish()
+
+        await ctx.pool.user.reindex()
+        await user1.reindex()
+
         await ctx.send(f'Successfully traded with {user}.')
 
     @trade.command(aliases=['c'])
@@ -245,21 +215,20 @@ class Trades(commands.Cog):
         if ctx.author.id not in self.trades:
             return await ctx.send('You are not in a trade.')
 
-        await ctx.send(f'{ctx.author.mention} Type `confirm` to confirm the trade.')
-        try:
-            def check(m: discord.Message):
-                return (m.author == ctx.author and m.channel == ctx.channel and m.content.casefold() == 'confirm'.casefold())
-
-            await self.bot.wait_for('message', check=check, timeout=30)
-        except asyncio.TimeoutError:
-            return await ctx.send('Aborted.')
-
         trade = self.trades[ctx.author.id]
         trade.trade.set_confirm_for(ctx.author.id)
 
         await self.refresh(trade)
         if trade.trade.p1.confirmed and trade.trade.p2.confirmed:
-            trade.event.set()
+            trade.future.set_result(True)
+    
+    @trade.command()
+    async def cancel(self, ctx: Context):
+        if ctx.author.id not in self.trades:
+            return await ctx.send('You are not in a trade.')
+
+        trade = self.trades[ctx.author.id]
+        trade.future.set_result(False)
 
     @trade.group(invoke_without_command=True, aliases=['a'])
     async def add(self, ctx: Context): ...
@@ -268,6 +237,9 @@ class Trades(commands.Cog):
     async def credits(self, ctx: Context, amount: int):
         if ctx.author.id not in self.trades:
             return await ctx.send('You are not in a trade.')
+
+        if amount > ctx.pool.user.credits:
+            return await ctx.send('You do not have enough credits.')
 
         trade = self.trades[ctx.author.id]
 
@@ -282,6 +254,9 @@ class Trades(commands.Cog):
     async def pokemon(self, ctx: Context, pokemon: UserPokemon):
         if ctx.author.id not in self.trades:
             return await ctx.send('You are not in a trade.')
+
+        if pokemon.is_starter():
+            return await ctx.send('You cannot add your starter to a trade.')
 
         trade = self.trades[ctx.author.id]
     

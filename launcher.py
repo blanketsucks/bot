@@ -3,11 +3,16 @@ import datetime
 import asyncio
 import aiohttp
 import logging
+import os
 
 from src.utils import print_with_color, Colors
 from src.bot import Pokecord
 from src import database
 import config
+
+os.environ["JISHAKU_NO_UNDERSCORE"] = "True"
+os.environ["JISHAKU_NO_DM_TRACEBACK"] = "True" 
+os.environ["JISHAKU_HIDE"] = "True"
 
 # Mostly taken from: https://github.com/Rapptz/discord.py/blob/master/discord/utils.py#L1209
 class ColorFormatter(logging.Formatter):
@@ -57,6 +62,8 @@ async def main():
     await bot.load_extension('src.cogs.pokemons')
     await bot.load_extension('src.cogs.trading')
     await bot.load_extension('src.cogs.spawns')
+    await bot.load_extension('src.cogs.redeems')
+    await bot.load_extension('src.cogs.shop')
 
     pool = await database.connect(config.DATABASE, bot=bot)
     print_with_color('{green}[INFO]{reset} Successfully connected to database.')

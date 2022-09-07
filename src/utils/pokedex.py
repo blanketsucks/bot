@@ -114,6 +114,16 @@ class PokedexEntry(commands.Converter[Any]):
     def default_name(self) -> str:
         return self.names.en
 
+    def get_rarity_name(self) -> str:
+        if self.rarity.legendary:
+            return 'Legendary'
+        elif self.rarity.mythical:
+            return 'Mythical'
+        elif self.rarity.ultra_beast:
+            return 'Ultra Beast'
+        else:
+            return 'Event'
+
 class PokedexReader:
     def __init__(self, path: pathlib.Path[str]):
         self.path = path
@@ -208,8 +218,8 @@ class Pokedex:
             slug=row['slug'],
             description=descprition,
             region=row['region'],
-            height=row['height'],
-            weight=row['weight'],
+            height=row['height'] / 10,
+            weight=row['weight'] / 10,
             names=self.create_names(row),
             types=self.create_types(row),
             stats=self.create_stats(row),

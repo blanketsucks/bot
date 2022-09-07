@@ -1,4 +1,4 @@
-from typing import Dict, Tuple
+from typing import Callable, Dict, Tuple
 import discord
 from discord.ext import commands
 import asyncio
@@ -9,6 +9,12 @@ from src.utils import Context, chance, title
 from src.bot import Pokecord, SpawnRates
 
 ChannelSpawn = Tuple[PokedexEntry, asyncio.Event, bool]
+
+CATCH_REWARDS: Dict[int, Tuple[int, Callable[[PokedexEntry], str]]] = {
+    0: (100, lambda _: 'Added to the pokédex, received 100 credits.'),
+    9: (1000, lambda entry: f'This is your 10th {title(entry.default_name)}, received 1000 credits.'),
+    99: (10000, lambda entry: f'This is your 100th {title(entry.default_name)}, received 10000 credits.')
+}
 
 class Spawns(commands.Cog):
     def __init__(self, bot: Pokecord) -> None:
@@ -40,16 +46,25 @@ class Spawns(commands.Cog):
         names = (n.casefold() for n in pokemon.names if n is not None)
 
         if name.casefold() in names:
+            self.spawns.pop(ctx.channel.id, None)
             level = random.randint(1, 50)
-            fmt = f'Congratulations! You caught a level {level} {title(pokemon.default_name)}!!'
+
+            fmt = f'Congratulations! You caught a level {level} {title(pokemon.default_name)}. '
+            count = await ctx.pool.user.get_catch_count_for(pokemon.id)
+        
+            amount, func = CATCH_REWARDS.get(count, (0, lambda _: ''))
+            fmt += func(pokemon)
+            
+            if amount:
+                await ctx.pool.user.add_credits(amount)
+
             if is_shiny:
                 fmt += '\n\nThese colors seem unusual... ✨'
 
             await ctx.reply(fmt)
             await ctx.pool.user.add_pokemon(pokemon.id, level, 0, is_shiny)
-
-            event.set()
-            return self.spawns.pop(ctx.channel.id, None)
+        
+            return event.set()
 
         await ctx.send('Wrong pokémon!')
     
@@ -118,7 +133,9 @@ class Spawns(commands.Cog):
                 return
 
             embed = discord.Embed(title='Use p!catch <pokémon name> to catch the following pokémon.', color=0x36E3DD)
-            embed.set_image(url=pokemon.images.default)
+           
+            embed.set_image(url='attachment://pokemon.png')
+            file = discord.File(pokemon.images.default, filename='pokemon.png')
 
             assert guild
             channel_id = random.choice(guild.spawn_channel_ids)
@@ -126,7 +143,7 @@ class Spawns(commands.Cog):
             channel = message.guild.get_channel(channel_id)
             assert isinstance(channel, discord.TextChannel)
 
-            await channel.send(embed=embed)
+            await channel.send(embed=embed, file=file)
             return await self.wait(channel.id, pokemon, is_shiny)
 
         user = await self.bot.pool.get_user(message.author.id)
@@ -148,11 +165,7 @@ class Spawns(commands.Cog):
                     evolution = self.bot.pokedex.get_pokemon(selected.dex.evolutions.to)
                     assert evolution
 
-                    await selected.edit(
-                        level=level,
-                        exp=0,
-                        id=evolution.id
-                    )
+                    await selected.edit(level=level, exp=0, dex_id=evolution.id)
                 else:
                     await selected.edit(level=level, exp=0)
             else:

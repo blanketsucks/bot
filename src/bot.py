@@ -42,6 +42,8 @@ class PosixFlags(commands.FlagConverter, prefix='--', delimiter=' '):
 
 class Pokecord(commands.Bot):
     CHANNEL_SPAWN_TIMEOUT: ClassVar[float] = 60.0
+    TRADE_TIMEOUT: ClassVar[float] = 75.0
+    REDEEM_CREDIT_AMOUNT: ClassVar[int] = 30000
 
     pool: database.Pool
     session: aiohttp.ClientSession
@@ -52,7 +54,7 @@ class Pokecord(commands.Bot):
 
         self.load_data()
 
-        self.ignored_commands = ('moves', 'pokedex', 'dex', 'starter')
+        self.ignored_commands = ('starter',)
         self.add_check(self.starter_check, call_once=True)
 
     @functools.lru_cache(maxsize=256)
@@ -153,6 +155,9 @@ class Pokecord(commands.Bot):
         return await super().get_context(message, cls=Context)
 
     async def on_command_error(self, context: Context, exception: commands.CommandError, /):
+        if isinstance(exception, (commands.CheckFailure, commands.CommandNotFound)):
+            return
+
         if isinstance(exception, commands.BadArgument):
             return await context.send(''.join(exception.args))
 
