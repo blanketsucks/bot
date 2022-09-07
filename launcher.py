@@ -7,6 +7,7 @@ import os
 
 from src.utils import print_with_color, Colors
 from src.bot import Pokecord
+from src.consts import COGS
 from src import database
 import config
 
@@ -50,35 +51,35 @@ def setup_logging():
     handler.setFormatter(ColorFormatter())
 
     logger.addHandler(handler)
+    return logger
+
+EXTENSIONS: List[str] = ['jishaku']
+for file in COGS.glob('*[!_].py'):
+    file = file.with_suffix('')
+
+    EXTENSIONS.append('.'.join(file.parts[-3:]))
 
 async def main():
     bot = Pokecord()
-    setup_logging()
+    logger = setup_logging()
 
-    await bot.load_extension('jishaku')
-
-    await bot.load_extension('src.cogs.guilds')
-    await bot.load_extension('src.cogs.pokedex')
-    await bot.load_extension('src.cogs.pokemons')
-    await bot.load_extension('src.cogs.trading')
-    await bot.load_extension('src.cogs.spawns')
-    await bot.load_extension('src.cogs.redeems')
-    await bot.load_extension('src.cogs.shop')
+    for extension in EXTENSIONS:
+        await bot.load_extension(extension)
 
     pool = await database.connect(config.DATABASE, bot=bot)
-    print_with_color('{green}[INFO]{reset} Successfully connected to database.')
+    logger.info('Successfully connected to the database.')
 
     async with pool.acquire() as conn:
         version = await conn.fetchval('SELECT version()')
-        print_with_color('{green}[INFO]{reset} PostgreSQL version:', version)
+        logger.info('PostgreSQL version: %s', version)
 
         with open('src/database/schema.sql', 'r') as f:
             await conn.execute(f.read())
 
-        print_with_color('{green}[INFO]{reset} Database schema created.')
+        logger.info('Database schema created.')
 
     now = datetime.datetime.now()
-    print_with_color('{green}[INFO]{reset} Starting bot at {blue}{now}{reset}.', now=now)
+    logger.info('Starting bot at %s%s%s.', Colors.blue.value, now, Colors.reset.value)
     
     async with aiohttp.ClientSession() as session:
         bot.session = session
