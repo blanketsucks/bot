@@ -854,7 +854,7 @@ class Menu(Generic[T], metaclass=_MenuMeta):
             task.cancel()
         self.__tasks.clear()
 
-class PageSource(ABC):
+class PageSource(ABC, Generic[T]):
     """An interface representing a menu page's data source for the actual menu page.
 
     Subclasses must implement the backing resource along with the following methods:
@@ -917,7 +917,7 @@ class PageSource(ABC):
         return None
 
     @abstractmethod
-    async def get_page(self, page_number: int) -> Any:
+    async def get_page(self, page_number: int) -> T:
         """|coro|
 
         An abstract method that retrieves an object representing the object to format.
@@ -943,7 +943,7 @@ class PageSource(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def format_page(self, menu: Menu[Any], page: Any):
+    async def format_page(self, menu: Menu[Any], page: T):
         """|maybecoro|
 
         An abstract method to format the page.
@@ -977,7 +977,7 @@ class PageSource(ABC):
         """
         raise NotImplementedError
 
-class MenuPages(Menu):
+class MenuPages(Menu[Any]):
     """A special type of Menu dedicated to pagination.
 
     Attributes
@@ -986,7 +986,7 @@ class MenuPages(Menu):
         The current page that we are in. Zero-indexed
         between [0, :attr:`PageSource.max_pages`).
     """
-    def __init__(self, source: PageSource, **kwargs: Any):
+    def __init__(self, source: PageSource[Any], **kwargs: Any):
         self._source = source
         self.current_page = 0
 
@@ -997,7 +997,7 @@ class MenuPages(Menu):
         """:class:`PageSource`: The source where the data comes from."""
         return self._source
 
-    async def change_source(self, source: PageSource):
+    async def change_source(self, source: PageSource[Any]):
         """|coro|
 
         Changes the :class:`PageSource` to a different one at runtime.
@@ -1133,7 +1133,7 @@ class MenuPages(Menu):
             await self.show_page(max_pages - 1)
 
 
-class ListPageSource(Generic[T], PageSource):
+class ListPageSource(PageSource[Sequence[T]]):
     """A data source for a sequence of items.
 
     This page source does not handle any sort of formatting, leaving it up
@@ -1165,20 +1165,20 @@ class ListPageSource(Generic[T], PageSource):
         """:class:`int`: The maximum number of pages required to paginate this sequence."""
         return self._max_pages
 
-    async def get_page(self, page_number: int) -> Any:
+    async def get_page(self, page_number: int) -> Sequence[T]:
         """Returns either a single element of the sequence or
         a slice of the sequence.
 
         If :attr:`per_page` is set to ``1`` then this returns a single
-        element. Otherwise it returns at most :attr:`per_page` elements.
+        element list. Otherwise it returns at most :attr:`per_page` elements.
 
         Returns
         ---------
-        Union[Any, List[Any]]
+        List[Any]
             The data returned.
         """
         if self.per_page == 1:
-            return self.entries[page_number]
+            return [self.entries[page_number]] # For consistency with types
         else:
             base = page_number * self.per_page
             return self.entries[base:base + self.per_page]
@@ -1261,7 +1261,7 @@ def _aiter(obj: Any, *, _isasync: Any = inspect.iscoroutinefunction) -> AsyncIte
         raise TypeError('{0.__name__!r} object is not an async iterable'.format(cls))
     return async_iter
 
-class AsyncIteratorPageSource(Generic[T], PageSource):
+class AsyncIteratorPageSource(PageSource[Sequence[T]]):
     """A data source for data backed by an asynchronous iterator.
 
     This page source does not handle any sort of formatting, leaving it up
@@ -1323,19 +1323,19 @@ class AsyncIteratorPageSource(Generic[T], PageSource):
             raise IndexError('Went too far')
         return entries
 
-    async def get_page(self, page_number: int):
+    async def get_page(self, page_number: int) -> List[T]:
         """Returns either a single element of the sequence or
         a slice of the sequence.
 
         If :attr:`per_page` is set to ``1`` then this returns a single
-        element. Otherwise it returns at most :attr:`per_page` elements.
+        element list. Otherwise it returns at most :attr:`per_page` elements.
 
         Returns
         ---------
-        Union[Any, List[Any]]
+        List[Any]
             The data returned.
         """
         if self.per_page == 1:
-            return await self._get_single_page(page_number)
+            return [await self._get_single_page(page_number)]
         else:
             return await self._get_page_range(page_number)
