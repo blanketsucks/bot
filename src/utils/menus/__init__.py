@@ -42,7 +42,8 @@ from typing import (
     Optional, 
     Generic, 
     TypeVar,
-    NamedTuple
+    NamedTuple,
+    cast
 )
 
 import asyncio
@@ -55,8 +56,6 @@ import inspect
 import logging
 import re
 from collections import OrderedDict
-
-MenuChannel = Union[discord.DMChannel, discord.TextChannel]
 
 # consistency with the `discord` namespaced logging
 log = logging.getLogger(__name__)
@@ -184,9 +183,9 @@ class Button(Generic[T]):
     def __init__(
         self,
         emoji: discord.PartialEmoji, 
-        action: Callable[[Menu[Any], T], Coroutine[Any, Any, Any]], 
+        action: Callable[[Menu[T], T], Coroutine[Any, Any, Any]], 
         *, 
-        skip_if: Optional[Callable[[Menu[Any]], bool]] = None, 
+        skip_if: Optional[Callable[[Menu[T]], bool]] = None, 
         position: Optional[Position] = None, 
         lock: bool = True
     ):
@@ -201,7 +200,7 @@ class Button(Generic[T]):
         return self._skip_if
 
     @skip_if.setter
-    def skip_if(self, value: Optional[Callable[[Menu[Any]], bool]]):
+    def skip_if(self, value: Optional[Callable[[Menu[T]], bool]]):
         if value is None:
             self._skip_if = lambda x: False
             return
@@ -222,7 +221,7 @@ class Button(Generic[T]):
         return self._action
 
     @action.setter
-    def action(self, value: Callable[[Menu[Any], T], Coroutine[Any, Any, Any]]):
+    def action(self, value: Callable[[Menu[T], T], Coroutine[Any, Any, Any]]):
         try:
             menu_self = value.__self__
         except AttributeError:
@@ -410,15 +409,16 @@ class Menu(Generic[T], metaclass=_MenuMeta):
 
     @property
     def allowed_ids(self) -> Set[int]:
-        assert self.bot
-        ids = [self._author_id]
+        if not self.bot or not self._author_id:
+            return set()
 
+        ids = [self._author_id]
         if self.bot.owner_id:
             ids.append(self.bot.owner_id)
         if self.bot.owner_ids:
             ids.extend(self.bot.owner_ids)
 
-        return set(ids) # type: ignore
+        return set(ids)
 
     async def _dummy_error(self) -> NoReturn:
         raise MenuError('Menu has not been started yet')
@@ -580,7 +580,7 @@ class Menu(Generic[T], metaclass=_MenuMeta):
     def _verify_permissions(
         self, 
         ctx: commands.Context[commands.Bot], 
-        channel: MenuChannel, 
+        channel: discord.abc.MessageableChannel,
         permissions: discord.Permissions
     ) -> None:
         if not permissions.send_messages:
@@ -739,7 +739,7 @@ class Menu(Generic[T], metaclass=_MenuMeta):
         self, 
         ctx: commands.Context[commands.Bot], 
         *, 
-        channel: Optional[MenuChannel] = None, # type: ignore
+        channel: Optional[discord.abc.MessageableChannel] = None,
         wait: bool = False
     ) -> None:
         """|coro|
@@ -775,20 +775,21 @@ class Menu(Generic[T], metaclass=_MenuMeta):
         self.ctx = ctx
         self._author_id = ctx.author.id
 
-        channel: MenuChannel = channel or ctx.channel # type: ignore
-        me = channel.guild.me if getattr(channel, 'guild', None) else ctx.bot.user # type: ignore
+        ch = channel or ctx.channel
+        if ch.guild:
+            me = ch.guild.me
+        else:
+            me = cast(discord.Member, ctx.bot.user)
 
-        assert me
-
-        permissions = channel.permissions_for(me) # type: ignore
+        permissions = ch.permissions_for(me)
         self.__me = discord.Object(id=me.id)
 
-        self._verify_permissions(ctx, channel, permissions)
+        self._verify_permissions(ctx, ch, permissions)
         self._event.clear()
 
         msg = self.message
         if msg is None:
-            self.message = msg = await self.send_initial_message(ctx, channel)
+            self.message = msg = await self.send_initial_message(ctx, ch)
 
         if self.should_add_reactions():
             # Start the task first so we can listen to reactions before doing anything
@@ -821,7 +822,7 @@ class Menu(Generic[T], metaclass=_MenuMeta):
         """
         return
 
-    async def send_initial_message(self, ctx: commands.Context[commands.Bot], channel: MenuChannel):
+    async def send_initial_message(self, ctx: commands.Context[commands.Bot], channel: discord.abc.MessageableChannel):
         """|coro|
 
         Sends the initial message for the menu session.
@@ -1043,7 +1044,7 @@ class MenuPages(Menu):
         kwargs = await self._get_kwargs_from_page(page)
         await self.message.edit(**kwargs)
 
-    async def send_initial_message(self, ctx: commands.Context[commands.Bot], channel: MenuChannel):
+    async def send_initial_message(self, ctx: commands.Context[commands.Bot], channel: discord.abc.MessageableChannel):
         """|coro|
 
         The default implementation of :meth:`Menu.send_initial_message`
@@ -1060,7 +1061,7 @@ class MenuPages(Menu):
         self,
         ctx: commands.Context[commands.Bot], 
         *, 
-        channel: Optional[MenuChannel] = None, 
+        channel: Optional[discord.abc.MessageableChannel] = None, 
         wait: bool = False
     ) -> None:
         await self._source._prepare_once()
