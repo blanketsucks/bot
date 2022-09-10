@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from typing import ClassVar, Dict, List, NamedTuple
-from discord.ext import commands
+from discord.ext import commands, tasks
 import json
 import aiohttp
 import enum
@@ -11,17 +11,21 @@ import difflib
 import sys
 import random
 import functools
+import datetime
+import logging
 
 from .utils import Pokedex, Context, ContextPool, print_with_color
 from .consts import DATA
 from . import database
 
+logger = logging.getLogger(__name__)
+
 class SpawnRates(enum.IntEnum):
     Global = 10000
     Shiny = 8192
     Legendary = 4000
-    Mythical = 2000
-    UltraBeast = 1200
+    UltraBeast = 2000
+    Mythical = 1200
 
 class Nature(NamedTuple):
     name: str
@@ -52,16 +56,18 @@ class Pokecord(commands.Bot):
     def __init__(self):
         super().__init__(command_prefix='p!', intents=discord.Intents.all())
 
+        self.messages: Dict[str, discord.Message] = {}
+
         self.load_data()
 
         self.ignored_commands = ('starter',)
         self.add_check(self.starter_check, call_once=True)
 
+        self._is_day = False
+
     @functools.lru_cache(maxsize=256)
     def get_close_matches(self, name: str):
         attrs = ('en', 'ja', 'ja_t', 'ja_t', 'fr')
-        name = name.title()
-
         for attr in attrs:
             pokemons = self.pokedex.with_language(attr)
             matches = difflib.get_close_matches(name, pokemons.keys(), n=5, cutoff=0.5)
@@ -70,6 +76,17 @@ class Pokecord(commands.Bot):
                 return matches
 
         return []
+
+    @tasks.loop(minutes=1)
+    async def update_time(self) -> None:
+        now = datetime.datetime.utcnow()
+        self._is_day = 23 > now.hour > 7
+
+    def is_daytime(self) -> bool:
+        return self._is_day
+
+    def add_message(self, key: str, message: discord.Message) -> None:
+        self.messages[key] = message
 
     def generate_nature(self) -> str:
         return random.choice(list(self.natures.keys()))
@@ -104,7 +121,7 @@ class Pokecord(commands.Bot):
             self.natures = {name: Nature(name, **nature) for name, nature in natures.items()}
 
         self.pokedex = Pokedex()
-        print_with_color('{green}[INFO]{reset} Loaded pokedex data.')
+        logger.info('Loaded pokedex data.')
 
     def get_needed_exp(self, level: int) -> int:
         return self.levels[level].needed
@@ -115,12 +132,6 @@ class Pokecord(commands.Bot):
             return True
 
         guild = await self.pool.add_guild(ctx.guild.id)
-        if not guild.spawn_channel_ids:
-            # await ctx.send(
-            #     content=f'A spawn channel has not been set. Please set it using `{guild.prefix}set <channel>`.'
-            # )
-            ...
-
         if ctx.command.name in self.ignored_commands:
             return True
 
@@ -151,6 +162,10 @@ class Pokecord(commands.Bot):
 
         return await super().close()
 
+    async def start(self, token: str, *, reconnect: bool = True) -> None:
+        self.update_time.start()
+        return await super().start(token, reconnect=reconnect)
+
     async def get_context(self, message: discord.Message):
         return await super().get_context(message, cls=Context)
 
@@ -162,4 +177,7 @@ class Pokecord(commands.Bot):
             return await context.send(''.join(exception.args))
 
         raise getattr(exception, 'original', exception)
+    
+    async def on_message_edit(self, before: discord.Message, after: discord.Message):
+        await self.process_commands(after)
     

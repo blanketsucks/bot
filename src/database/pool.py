@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Iterable, List, Optional, TYPE_CHECKING, Sequence
+from typing import Any, Dict, Iterable, List, Optional, TYPE_CHECKING, Sequence, Tuple
 import uuid
 import asyncpg
 import json
 import functools
 
-from .user import User
+from .user import User, UserPokemon
 from .guild import Guild
 from .pokemons import EVs, Pokemon, IVs, Moves
 from .items import ShopItem, ShopItemKind
@@ -21,6 +21,9 @@ class Pool:
         self.bot = bot
 
         self.users: Dict[int, User] = {}
+        
+        # { dex_id: ( [non-shiny pokemons...], [shiny pokemons...] ) }
+        self.free: Dict[int, Tuple[List[UserPokemon], List[UserPokemon]]] = {}
 
     async def __aenter__(self) -> Pool:
         return self
@@ -49,6 +52,20 @@ class Pool:
     async def fetchrow(self, query: str, *args) -> Optional[asyncpg.Record]:
         async with self.acquire() as conn:
             return await conn.fetchrow(query, *args)
+
+    def add_free_pokemon(self, pokemon: UserPokemon) -> None:
+        free = self.free.setdefault(pokemon.dex.id, ([], []))
+        free[pokemon.shiny].append(pokemon)
+
+    def get_free_pokemon(self, dex_id: int, *, is_shiny: bool = False) -> Optional[UserPokemon]:
+        if dex_id not in self.free:
+            return None
+
+        free = self.free[dex_id][is_shiny]
+        if not free:
+            return None
+
+        return free.pop()
 
     def create_pokemon(self, pokemon_id: int, owner_id: int, catch_id: int, is_shiny: bool) -> Pokemon:
         pokemon = self.bot.pokedex.get_pokemon(pokemon_id)
@@ -106,6 +123,8 @@ class Pool:
             user = User(record, pokemons, self)
 
             self.users[user_id] = user
+            await user.reindex()
+
             return user
 
     async def add_guild(self, guild_id: int) -> Guild:
@@ -142,8 +161,12 @@ class Pool:
 
         return ShopItem.from_record(self, record)
 
-    async def get_all_items(self) -> List[ShopItem]:
-        records = await self.fetch('SELECT * FROM items')
+    async def get_all_items(self, *, kind: Optional[ShopItemKind] = None) -> List[ShopItem]:
+        if kind is not None:
+            records = await self.fetch('SELECT * FROM items WHERE kind = $1', kind)
+        else:
+            records = await self.fetch('SELECT * FROM items')
+            
         return [ShopItem.from_record(self, record) for record in records]
 
     @functools.lru_cache(maxsize=128)

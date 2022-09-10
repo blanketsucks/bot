@@ -4,16 +4,17 @@ from discord.ext import commands
 import asyncio
 import random
 
-from src.utils.pokedex import PokedexEntry, Rarity
-from src.utils import Context, chance, title
+from src.utils.pokedex import PokedexEntry, Rarity, EvolutionCondition, EvolutionTime
+from src.database.user import UserPokemon
+from src.utils import Context, chance
 from src.bot import Pokecord, SpawnRates
 
 ChannelSpawn = Tuple[PokedexEntry, asyncio.Event, bool]
 
 CATCH_REWARDS: Dict[int, Tuple[int, Callable[[PokedexEntry], str]]] = {
     0: (100, lambda _: 'Added to the pokédex, received 100 credits.'),
-    9: (1000, lambda entry: f'This is your 10th {title(entry.default_name)}, received 1000 credits.'),
-    99: (10000, lambda entry: f'This is your 100th {title(entry.default_name)}, received 10000 credits.')
+    9: (1000, lambda entry: f'This is your 10th {entry.default_name}, received 1000 credits.'),
+    99: (10000, lambda entry: f'This is your 100th {entry.default_name}, received 10000 credits.')
 }
 
 class Spawns(commands.Cog):
@@ -49,7 +50,7 @@ class Spawns(commands.Cog):
             self.spawns.pop(ctx.channel.id, None)
             level = random.randint(1, 50)
 
-            fmt = f'Congratulations! You caught a level {level} {title(pokemon.default_name)}. '
+            fmt = f'Congratulations! You caught a level {level} {pokemon.default_name}. '
             count = await ctx.pool.user.get_catch_count_for(pokemon.id)
         
             amount, func = CATCH_REWARDS.get(count, (0, lambda _: ''))
@@ -119,6 +120,30 @@ class Spawns(commands.Cog):
 
         return Rarity.Common, chance(SpawnRates.Shiny)
 
+    def satisfies_all_evolution_conditions(
+        self, pokemon: UserPokemon, level: int, entry: PokedexEntry
+    ) -> bool:
+        if entry.evolutions.at is not None:
+            if level < entry.evolutions.at:
+                return False
+
+        cond = False
+        for condition in entry.evolutions.conditions:
+            if condition is EvolutionCondition.Time:
+                assert entry.evolutions.time
+
+                time = entry.evolutions.time
+                if time is EvolutionTime.Day and self.bot.is_daytime():
+                    cond = True
+                elif time is EvolutionTime.Night and not self.bot.is_daytime():
+                    cond = True
+                else:
+                    cond = False
+            else:
+                assert False, "Not Implemeneted"
+
+        return cond
+
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
         if message.guild is None:
@@ -155,21 +180,26 @@ class Spawns(commands.Cog):
             return
 
         selected = user.get_selected()
-        increment = random.randint(1, 60)
+        if selected.level == 100:
+            return
 
+        increment = random.randint(1, 60)
         if (selected.exp + increment) >= self.bot.get_needed_exp(selected.level):
             level = selected.level + 1
-            if selected.dex.evolutions.at is not None:
-                assert selected.dex.evolutions.to
-                if selected.dex.evolutions.at == level:
-                    evolution = self.bot.pokedex.get_pokemon(selected.dex.evolutions.to)
-                    assert evolution
 
-                    await selected.edit(level=level, exp=0, dex_id=evolution.id)
-                else:
-                    await selected.edit(level=level, exp=0)
-            else:
-                await selected.edit(level=level, exp=0)
+            if selected.dex.evolutions.to:
+                for evolution in selected.dex.evolutions.to:
+                    entry = self.bot.pokedex.get_pokemon(evolution)
+                    assert entry
+
+                    if self.satisfies_all_evolution_conditions(
+                        pokemon=selected,
+                        level=level,
+                        entry=entry
+                    ):
+                        return await selected.edit(level=level, exp=0, dex_id=entry.id)
+
+            await selected.edit(level=level, exp=0)
         else:
             await selected.add_exp(increment)
         

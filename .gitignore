@@ -2,8 +2,9 @@ __pycache__
 .vscode
 
 config.py
-*.csv
 test.py
+update_*.py
+*.csv
 
 src/data/*
 src/assets/*

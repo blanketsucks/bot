@@ -14,7 +14,7 @@ __all__ = ('ShopItemKind', 'ShopItem')
 class ShopItemKind(IntEnum):
     Booster = 1
     NatureMints = 2
-    MegaEvolutions = 3
+    MegaEvolutionsAndForms = 3
     Other = 4
 
     def as_string(self) -> str:
@@ -22,8 +22,8 @@ class ShopItemKind(IntEnum):
             return 'XP Boosters'
         elif self is ShopItemKind.NatureMints:
             return 'Nature Mints'
-        elif self is ShopItemKind.MegaEvolutions:
-            return 'Mega Evolutions'
+        elif self is ShopItemKind.MegaEvolutionsAndForms:
+            return 'Mega Evolutions & Forms'
         else:
             return 'Other'
 

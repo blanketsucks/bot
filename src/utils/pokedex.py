@@ -24,6 +24,15 @@ class Rarity(str, enum.Enum):
     Mythical = 'mythical'
     Legendary = 'legendary'
 
+class EvolutionCondition(str, enum.Enum):
+    Time = 'time'
+    HeldItem = 'held_item'
+    TriggerItem = 'trigger_item'
+
+class EvolutionTime(str, enum.Enum):
+    Day = 'day'
+    Night = 'night'
+
 class PokemonStats(NamedTuple):
     hp: int
     atk: int
@@ -56,10 +65,14 @@ class MegaPokemonEvolutions(NamedTuple):
     x: Optional[int]
 
 class PokemonEvolutions(NamedTuple):
-    to: Optional[int]
+    to: List[int]
     at: Optional[int]
+    time: Optional[EvolutionTime]
+    held_item: Optional[str]
+    trigger_item: Optional[str]
     from_: Optional[int]
     mega: MegaPokemonEvolutions
+    conditions: List[EvolutionCondition]
 
 class PokemonImages(NamedTuple):
     default: pathlib.Path[str]
@@ -211,7 +224,7 @@ class Pokedex:
         return pokemons
 
     def create_pokemon(self, row: Dict[str, Any]) -> PokedexEntry:
-        descprition = re.sub(r'\n', ' ', row['description'])
+        descprition = re.sub(r'\n', ' ', row.get('description', ''))
         return PokedexEntry(
             dex=row['dex_number'],
             id=row['id'],
@@ -247,19 +260,29 @@ class Pokedex:
             x=data.get('evo.mega_x')
         )
 
+        to = []
+        if 'evo.to' in data:
+            to = data['evo.to']
+            if not isinstance(to, list):
+                to = [to]
+
         evolutions = PokemonEvolutions(
-            to=data.get('evo.to'),
+            to=to,
             at=data.get('evo.level'),
+            time=EvolutionTime(data['evo.time']) if 'evo.time' in data else None,
+            held_item=data.get('evo.held_item_id'),
+            trigger_item=data.get('evo.trigger_item_id'),
             from_=data.get('evo.from'),
-            mega=mega
+            mega=mega,
+            conditions=[EvolutionCondition(cond) for cond in data.get('evo.conditions', [])]
         )
 
         return evolutions
 
     def create_types(self, data: Dict[str, Any]) -> PokemonTypes:
         return PokemonTypes(
-            first=data['type0'],
-            second=data.get('type1')
+            first=data['type.0'],
+            second=data.get('type.1')
         )
 
     def create_rarity(self, data: Dict[str, Any]) -> PokemonRarity:
@@ -272,7 +295,7 @@ class Pokedex:
 
     def create_names(self, data: Dict[str, Any]) -> PokemonNames:
         return PokemonNames(
-            en=data['name.en'],
+            en=data.get('name.en', data['slug']),
             jp=data.get('name.ja'),
             fr=data.get('name.fr'),
             de=data.get('name.de'),

@@ -136,9 +136,9 @@ class Pokemon:
         query = 'UPDATE pokemons SET '
 
         query += ', '.join([f'{key} = ${i}' for i, key in enumerate(keys, start=1)])
-        query += f' WHERE owner_id = ${len(keys) + 1}'
+        query += f' WHERE id = ${len(keys) + 1}'
 
-        data.append(self.owner_id)        
+        data.append(str(self.id))        
         await pool.execute(query, *data)
 
     def to_dict(self) -> Dict[str, Any]:

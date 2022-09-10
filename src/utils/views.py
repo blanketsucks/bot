@@ -5,8 +5,10 @@ __all__ = 'ConfirmationView',
 class ConfirmationView(discord.ui.View):
     message: discord.Message
 
-    def __init__(self, *, timeout: float = 30.0):
+    def __init__(self, member: discord.Member, *, timeout: float = 30.0):
         self.value = None
+        self.member = member
+
         super().__init__(timeout=timeout)
     
     async def disable(self) -> None:
@@ -14,6 +16,13 @@ class ConfirmationView(discord.ui.View):
         self.cancel.disabled = True
 
         await self.message.edit(view=self)
+
+    async def interaction_check(self, interaction: discord.Interaction, /) -> bool:
+        if interaction.user == self.member:
+            return True
+        
+        await interaction.response.send_message('This is not your view.', ephemeral=True)
+        return False
 
     @discord.ui.button(label='Confirm', style=discord.ButtonStyle.green)
     async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):

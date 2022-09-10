@@ -5,7 +5,6 @@ import itertools
 __all__ = (
     'chunk',
     'find',
-    'title',
     'print_with_color',
     'Colors'
 )
@@ -33,20 +32,3 @@ def find(items: Iterable[T], predicate: Callable[[T], bool]) -> List[T]:
 
 def print_with_color(text: str, *values: str, **kwargs: Any) -> None:
     print(text.format(**Colors.__members__, **kwargs), *values)
-
-def title(s: str) -> str:
-    new = s[0].upper()
-    is_first_letter = False
-
-    for char in s[1:]:
-        if char.isspace():
-            new += char
-            is_first_letter = True
-        else:
-            if is_first_letter:
-                new += char.upper()
-                is_first_letter = False
-            else:
-                new += char
-    
-    return new

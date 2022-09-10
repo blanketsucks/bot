@@ -3,7 +3,7 @@ from typing import Iterable, Optional, List
 from discord.ext import commands, menus
 import discord
 
-from src.utils import Context, chunk, find, title, ConfirmationView
+from src.utils import Context, chunk, find, ConfirmationView
 from src.database.user import UserPokemon
 from src.bot import Pokecord, PosixFlags
 
@@ -27,9 +27,9 @@ class PokemonsSource(menus.ListPageSource):
                 ret += '✨ '
 
             if entry.has_nickname():
-                ret += f'**{title(entry.dex.default_name)} "{entry.nickname}"** | Level: {entry.level} | IV: {entry.ivs.round()}%'
+                ret += f'**{entry.dex.default_name} "{entry.nickname}"** | Level: {entry.level} | IV: {entry.ivs.round()}%'
             else:
-                ret += f'**{title(entry.dex.default_name)}** | Level: {entry.level} | IV: {entry.ivs.round()}%'
+                ret += f'**{entry.dex.default_name}** | Level: {entry.level} | IV: {entry.ivs.round()}%'
 
             
             description.append(ret)
@@ -66,6 +66,9 @@ class Pokemons(commands.Cog):
     
     @commands.command(aliases=['i'])
     async def info(self, ctx: Context, *, pokemon: Optional[UserPokemon] = None):
+        if pokemon is False: # goofy
+            return 
+
         if pokemon is None:
             pokemon = ctx.pool.user.pokemons.get(ctx.pool.user.selected)
             if not pokemon:
@@ -79,9 +82,9 @@ class Pokemons(commands.Cog):
             _title += '✨ '
         
         if pokemon.has_nickname():
-            _title += f'Level {pokemon.level} {title(pokemon.dex.default_name)} "{pokemon.nickname}"'
+            _title += f'Level {pokemon.level} {pokemon.dex.default_name} "{pokemon.nickname}"'
         else:
-            _title += f'Level {pokemon.level} {title(pokemon.dex.default_name)}'
+            _title += f'Level {pokemon.level} {pokemon.dex.default_name}'
 
         embed = discord.Embed(title=_title, color=0x36E3DD)
 
@@ -135,7 +138,7 @@ class Pokemons(commands.Cog):
         if not pokemons:
             pokemons = (ctx.pool.user.get_selected(),)
 
-        view = ConfirmationView()
+        view = ConfirmationView(ctx.author) # type: ignore
         view.message = await ctx.send(
             'Are you sure you want to release those pokémons? Click on `Confirm` to release them.', view=view
         )
@@ -170,6 +173,11 @@ class Pokemons(commands.Cog):
             await ctx.send(f'Reset the nicknames of {len(pokemons)} Pokémons.')
         else:
             await ctx.send(f'Changed the nickname of {len(pokemons)} Pokémons to {nickname}.')
+
+    @commands.command()
+    async def reindex(self, ctx: Context):
+        await ctx.pool.user.reindex()
+        await ctx.send('Successfully reindexed all of your pokémons.')
 
     @commands.command()
     async def starter(self, ctx: Context, *, name: Optional[str]):

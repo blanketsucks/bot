@@ -3,7 +3,7 @@ from discord.ext import commands
 
 from .spawns import Spawns
 from src.bot import Pokecord
-from src.utils import Context, PokedexEntry, title, chance
+from src.utils import Context, PokedexEntry, chance
 
 class Redeems(commands.Cog):
     def __init__(self, bot: Pokecord) -> None:
@@ -45,7 +45,7 @@ class Redeems(commands.Cog):
             return await ctx.send('Sorry, you cannot redeem this pokemon.')
 
         await ctx.pool.user.add_pokemon(pokemon_id=pokemon.id)
-        await ctx.send(f'Successfully redeemed {title(pokemon.default_name)}')
+        await ctx.send(f'Successfully redeemed {pokemon.default_name}')
 
         await ctx.pool.user.remove_redeem()
 
@@ -65,8 +65,8 @@ class Redeems(commands.Cog):
         file = discord.File(pokemon.images.default, filename='pokemon.png')
         await ctx.send(embed=embed, file=file)
 
-        await spawns.wait(ctx.channel.id, pokemon, chance(8192))
         await ctx.pool.user.remove_redeem()
+        await spawns.wait(ctx.channel.id, pokemon, chance(8192))
 
     @redeem.command()
     async def credits(self, ctx: Context):

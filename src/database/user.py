@@ -93,24 +93,27 @@ class UserPokemon(commands.Converter[Any]):
         return f'<UserPokemon id={str(self.id)!r} catch_id={self.catch_id} nickname={self.nickname!r}>'
 
     @classmethod
-    async def convert(cls, ctx: Context, argument: str) -> UserPokemon:
+    async def convert(cls, ctx: Context, argument: str) -> Any:
         user = ctx.pool.user
         if argument.lower() in ('l', 'latest'):
             entry = user.pokemons.get(user.catch_id)
             if not entry:
-                raise commands.BadArgument('Pokémon not found.')
+                await ctx.send('Pokémon not found.')
+                return False
 
             return entry
         if argument.isdigit():
             entry = user.pokemons.get(int(argument))
             if not entry:
-                raise commands.BadArgument('Pokémon not found.')
+                await ctx.send('Pokémon not found.')
+                return False
 
             return entry
 
         pokemons = user.find(nickname=argument)
         if not pokemons:
-            raise commands.BadArgument('Pokémon not found.')
+            await ctx.send('Pokémon not found.')
+            return False
         
         return pokemons[0]
 
@@ -200,6 +203,8 @@ class UserPokemon(commands.Converter[Any]):
         evs: Optional[EVs] = None,
         shiny: Optional[bool] = None,
         dex_id: Optional[int] = None,
+        catch_id: Optional[int] = None,
+        owner_id: Optional[int] = None
     ) -> UserPokemon:
         if not self.exists():
             raise ValueError(f'Pokemon {self.entry.nickname!r} does not exist')
@@ -220,6 +225,10 @@ class UserPokemon(commands.Converter[Any]):
             self.data['evs'] = evs
         if shiny is not None:
             self.data['shiny'] = shiny
+        if catch_id is not None:
+            self.data['catch_id'] = catch_id
+        if owner_id is not None:
+            self.data['owner_id'] = owner_id
         if dex_id is not None:
             if not self.has_nickname() and nickname is None:
                 dex = self.user.bot.pokedex.get_pokemon(dex_id)
@@ -231,10 +240,6 @@ class UserPokemon(commands.Converter[Any]):
             self.data['dex_id'] = dex_id
         
         await self.entry.update(self.pool)
-        record = await self.pool.fetchrow('SELECT * FROM pokemons WHERE id = $1', str(self.entry.id))
-
-        assert record
-        self.data = dict(record)
 
         return self
 
@@ -257,9 +262,10 @@ class UserPokemon(commands.Converter[Any]):
         query = 'UPDATE users SET pokemons = ARRAY_REMOVE(users.pokemons, $1), selected = $2 WHERE id = $3'
 
         await self.pool.execute(query, str(pokemon.entry.id), new_selected, self.user.id)
-        # await self.pool.execute('DELETE FROM pokemons WHERE id = $1', str(pokemon.id))
+        await self.pool.execute('UPDATE pokemons SET owner_id = 0 WHERE id = $1', str(pokemon.id))
 
-        await self.user.refetch()
+        self.pool.add_free_pokemon(pokemon)
+        self.user.data['selected'] = new_selected
 
     async def select(self) -> None:
         if not self.exists():
@@ -273,7 +279,7 @@ class UserPokemon(commands.Converter[Any]):
             'UPDATE users SET selected = $1 WHERE id = $2', entry.catch_id, self.user.id
         )
 
-        self.user._data['selected'] = entry.catch_id
+        self.user.data['selected'] = entry.catch_id
 
     async def transfer(self, to: User) -> None:
         if self.is_selected():
@@ -301,34 +307,35 @@ class UserPokemon(commands.Converter[Any]):
 
         to.pokemons[catch_id] = pokemon
 
-        to._data['catch_id'] = catch_id
-        self.user._data['selected'] = new_selected
+        to.data['catch_id'] = catch_id
+        self.user.data['selected'] = new_selected
 
 class User(RecordModel):
     def __init__(self, record: asyncpg.Record, pokemons: List[asyncpg.Record], pool: Pool) -> None:
         super().__init__(record, pool)
         self._update_pokemons(pokemons)
     
-        self._data = dict(record)
+        self.data = dict(record)
 
     def _update_pokemons(self, records: List[asyncpg.Record]) -> None:
+        records = sorted(records, key=lambda record: record['catch_id'])
         self.pokemons = {pokemon['catch_id']: UserPokemon(self, dict(pokemon)) for pokemon in records}
 
     @property
     def credits(self) -> int:
-        return self._data['credits']
+        return self.data['credits']
 
     @property
     def catch_id(self) -> int:
-        return self._data['catch_id']
+        return self.data['catch_id']
 
     @property
     def selected(self) -> int:
-        return self._data['selected']
+        return self.data['selected']
 
     @property
     def redeems(self) -> int:
-        return self._data['redeems']
+        return self.data['redeems']
 
     def find(self, **attrs: Any) -> List[UserPokemon]:
         pokemons = [
@@ -354,6 +361,9 @@ class User(RecordModel):
 
         return pokemons
 
+    def get_pokemons(self, dex_id: int) -> List[UserPokemon]:
+        return [pokemon for pokemon in self.pokemons.values() if pokemon.dex.id == dex_id]
+
     async def get_catch_count_for(self, dex_id: int) -> int:
         record = await self.pool.fetchrow(
             'SELECT COUNT(id) FROM pokemons WHERE owner_id = $1 AND dex_id = $2', self.id, dex_id
@@ -364,22 +374,25 @@ class User(RecordModel):
 
     async def add_redeems(self, amount: int) -> None:
         await self.pool.execute('UPDATE users SET redeems = redeems + $1 WHERE id = $2', amount, self.id)
-        self._data['redeems'] += amount
+        self.data['redeems'] += amount
 
     async def add_redeem(self) -> None:
         await self.add_redeems(1)
 
-    async def remove_redeem(self) -> None:
-        await self.pool.execute('UPDATE users SET redeems = redeems - 1 WHERE id = $1', self.id)
-        self._data['redeems'] -= 1
+    async def remove_redeems(self, amount: int) -> None:
+        await self.pool.execute('UPDATE users SET redeems = redeems - $1 WHERE id = $2', amount, self.id)
+        self.data['redeems'] -= amount
 
+    async def remove_redeem(self) -> None:
+        await self.remove_redeems(1)
+        
     async def add_credits(self, amount: int) -> None:
         await self.pool.execute('UPDATE users SET credits = credits + $1 WHERE id = $2', amount, self.id)
-        self._data['credits'] += amount
+        self.data['credits'] += amount
 
     async def remove_credits(self, amount: int) ->  None:
         await self.pool.execute('UPDATE users SET credits = credits - $1 WHERE id = $2', amount, self.id)
-        self._data['credits'] -= amount
+        self.data['credits'] -= amount
             
     async def add_pokemon(
         self,
@@ -394,6 +407,14 @@ class User(RecordModel):
         nickname: Optional[str] = None,
     ) -> UserPokemon:
         catch_id = self.catch_id + 1
+        pokemon = self.pool.get_free_pokemon(pokemon_id, is_shiny=is_shiny)
+
+        if pokemon is not None:
+            await pokemon.edit(owner_id=self.id, catch_id=catch_id, level=level, exp=exp)
+            self.pokemons[catch_id] = pokemon
+
+            return pokemon
+
         entry = self.pool.create_pokemon(pokemon_id, self.id, catch_id, is_shiny)
 
         entry.level = level
@@ -414,7 +435,7 @@ class User(RecordModel):
         await pokemon.save()
 
         await self.pool.execute('UPDATE users SET catch_id = $1 WHERE id = $2', catch_id, self.id)
-        self._data['catch_id'] = catch_id
+        self.data['catch_id'] = catch_id
 
         return pokemon
 
@@ -432,10 +453,10 @@ class User(RecordModel):
 
             index += 1
 
-        self._data['catch_id'] = index - 1
-        self._data['selected'] = selected
+        self.data['catch_id'] = index - 1
+        self.data['selected'] = selected
 
-        await self.pool.execute('UPDATE users SET selected = $1, catch_id = $2 WHERE id = $3', selected, index - 1, self.id)
+        await self.pool.execute('UPDATE users SET selected = $1, catch_id = $2 WHERE id = $3', selected, index - 1, self.id)    
         await self.pool.executemany('UPDATE pokemons SET catch_id = $1 WHERE id = $2', data)
 
         records = await self.pool.fetch('SELECT * FROM pokemons WHERE owner_id = $1', self.id)
@@ -450,3 +471,5 @@ class User(RecordModel):
     async def delete(self) -> None:
         await self.pool.execute('DELETE FROM users WHERE id = $1', self.id)
         self.pool.users.pop(self.id, None)
+
+        await self.pool.execute('DELETE FROM pokemons WHERE owner_id = $1', self.id)

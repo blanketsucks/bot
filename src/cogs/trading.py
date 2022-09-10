@@ -8,7 +8,7 @@ from discord.ext import commands
 
 from src.bot import Pokecord
 from src.database import User
-from src.utils import Context, title, ConfirmationView
+from src.utils import Context, ConfirmationView
 from src.database.user import UserPokemon
 from src.database.pokemons import IVs, EVs, Moves
 
@@ -27,21 +27,28 @@ class UserTrade:
         self.user = user
 
         self.credits = 0
+        self.redeems = 0
         self.pokemons: List[UserPokemon] = []
 
         self.confirmed = False
 
     def empty(self) -> bool:
-        return self.credits == 0 and len(self.pokemons) == 0
+        return self.credits == 0 and len(self.pokemons) == 0 and self.redeems == 0
     
     async def finish(self) -> List[UserPokemon]:
         if self.credits:
             await self.user.remove_credits(self.credits)
 
+        if self.redeems:
+            await self.user.remove_redeems(self.redeems)
+
         return self.pokemons
 
     def add_credits(self, amount: int) -> None:
         self.credits += amount
+    
+    def add_redeems(self, amount: int) -> None:
+        self.redeems += amount
 
     def add_pokemon(self, pokemon: UserPokemon) -> bool:
         if discord.utils.find(lambda poke: poke.catch_id == pokemon.catch_id, self.pokemons):
@@ -69,6 +76,12 @@ class Trade:
         else:
             self.p2.add_credits(amount)
 
+    def add_redeems_for(self, user_id: int, amount: int) -> None:
+        if self.user1.id == user_id:
+            self.p1.add_redeems(amount)
+        else:
+            self.p2.add_redeems(amount)
+
     def add_pokemon_for(self, user_id: int, pokemon: UserPokemon) -> bool:
         if self.user1.id == user_id:
             return self.p1.add_pokemon(pokemon)
@@ -85,10 +98,14 @@ class Trade:
         traded1 = await self.p1.finish()
         if self.p1.credits:
             await self.user2.add_credits(self.p1.credits)
+        if self.p1.redeems:
+            await self.user2.add_redeems(self.p1.redeems)
 
         traded2 = await self.p2.finish()
         if self.p2.credits:
             await self.user1.add_credits(self.p2.credits)
+        if self.p2.redeems:
+            await self.user1.add_redeems(self.p2.redeems)
 
         for trade in traded1:
             await trade.transfer(self.user2)
@@ -114,13 +131,15 @@ class Trades(commands.Cog):
         fmt = '```\n'
         if user.credits:
             fmt += f'{user.credits} Credits\n'
+        if user.redeems:
+            fmt += f'{user.redeems} Redeems\n'
 
         for pokemon in user.pokemons:
             fmt += f'Level {pokemon.level} '
             if pokemon.shiny:
                 fmt += '✨ ' 
             
-            fmt += title(pokemon.dex.default_name)
+            fmt += pokemon.dex.default_name
             if pokemon.has_nickname():
                 fmt += f' "{pokemon.nickname}"'
 
@@ -168,7 +187,7 @@ class Trades(commands.Cog):
         if user.id in self.trades:
             return await ctx.send('That user is already inside a trade.')
 
-        view = ConfirmationView()
+        view = ConfirmationView(user)
         view.message = await ctx.send(
             f'{user.mention}, {ctx.author.mention} wants to trade with you. Click on `Confirm` to accept the trade.',
             view=view
@@ -197,11 +216,11 @@ class Trades(commands.Cog):
         except asyncio.TimeoutError:
             return await ctx.send('Trade timeout.')
 
+        self.trades.pop(ctx.author.id); self.trades.pop(user.id)
+
         result = future.result()
         if not result:
             return await ctx.send('Aborted.')
-
-        self.trades.pop(ctx.author.id); self.trades.pop(user.id)
 
         await trade.trade.finish()
 
@@ -268,6 +287,21 @@ class Trades(commands.Cog):
             await ctx.send('That pokemon is already added to the trade.')
         else:
             await self.refresh(trade)
+
+    @add.command(aliases=['r'])
+    async def redeem(self, ctx: Context, amount: int = 1):
+        if ctx.author.id not in self.trades:
+            return await ctx.send('You are not in a trade.')
+
+        if amount > ctx.pool.user.redeems:
+            return await ctx.send('You do not have enough redeems.')
+
+        trade = self.trades[ctx.author.id]
+    
+        trade.trade.p1.confirmed = False
+        trade.trade.p2.confirmed = False
+
+        trade.trade.add_redeems_for(ctx.author.id, amount)
 
 async def setup(bot: Pokecord):
     await bot.add_cog(Trades(bot))

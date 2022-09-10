@@ -1,23 +1,22 @@
 
 from typing import List, Optional
 from discord.ext import commands
-from discord.ext.menus import ListPageSource, MenuPages
 import discord
 
 from src.database import User
-from src.utils import Context, PokedexEntry, title
+from src.utils import Context, PokedexEntry
+from src.utils.menus import ListPageSource
+from src.utils.menus.views import ViewMenuPages
 from src.bot import Pokecord
 
-class PokedexSource(ListPageSource):
-    entries: List[PokedexEntry]
-
+class PokedexSource(ListPageSource[PokedexEntry]):
     def __init__(self, user: User, entries: List[PokedexEntry]):
         self.user = user
         self.uniques = len(user.get_unique_pokemons())
 
         super().__init__(entries, per_page=20)
 
-    async def format_page(self, menu: MenuPages, entries: List[PokedexEntry]):
+    async def format_page(self, menu: ViewMenuPages, entries: List[PokedexEntry]):
         offset = menu.current_page * self.per_page or 1
         embed = discord.Embed(title=f'Your pokédex', color=0x36E3DD)
         embed.description = f'You have caught {self.uniques} out of {len(self.entries)} pokémons.'
@@ -29,9 +28,7 @@ class PokedexSource(ListPageSource):
             else:
                 value = f'✅ {count} caught.'
 
-            embed.add_field(name=f'{title(entry.default_name)} #{i}', value=value)
-
-        # embed.set_footer(text=f'Page {menu.current_page + 1}/{self.get_max_pages()}. Use the reactions to navigate.')
+            embed.add_field(name=f'{entry.default_name} #{i}', value=value)
 
         return embed
 
@@ -45,7 +42,7 @@ class Pokedex(commands.Cog):
             entries = self.bot.pokedex.find(lambda entry: entry.catchable)
             source = PokedexSource(ctx.pool.user, entries)
 
-            menu = MenuPages(source)
+            menu = ViewMenuPages(source)
             return await menu.start(ctx)
 
         is_shiny = False
@@ -97,16 +94,15 @@ class Pokedex(commands.Cog):
             '**Height**: {}m'.format(entry.height),
             '**Weight**: {}kg'.format(entry.weight),
             '**Catchable**: {}'.format(entry.catchable),
-            '**Enabled**: {}'.format(entry.enabled),
             '**Rarity**: {}'.format(entry.get_rarity_name()),
             '**Is Form**: {}'.format(entry.is_form),
         ]
 
         embed = discord.Embed(color=0x36E3DD)
         if is_shiny:
-            embed.title = f'#{entry.dex} — ✨ {title(entry.default_name)}'
+            embed.title = f'#{entry.dex} — ✨ {entry.default_name}'
         else:
-            embed.title = f'#{entry.dex} — {title(entry.default_name)}'
+            embed.title = f'#{entry.dex} — {entry.default_name}'
 
         embed.description = entry.description if entry.description else 'No description.'
         embed.description += '\n\n'
