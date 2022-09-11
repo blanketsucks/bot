@@ -22,7 +22,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
 
-from typing import Any, List, Optional
+from __future__ import annotations
+
+from typing import Any, List, Optional, cast
 
 import asyncio
 import functools
@@ -30,7 +32,7 @@ import functools
 import discord
 from discord.ext import commands
 
-from . import Button, Menu, MenuChannel, MenuPages, PageSource
+from . import Button, Menu, MenuPages, PageSource
 
 ViewButton = Button[discord.Interaction]
 
@@ -152,7 +154,7 @@ class ViewMenu(Menu):
         self, 
         ctx: commands.Context[commands.Bot], 
         *, 
-        channel: Optional[MenuChannel] = None, # type: ignore
+        channel: Optional[discord.abc.MessageableChannel] = None,
         wait: bool = False
     ):
         try:
@@ -164,20 +166,20 @@ class ViewMenu(Menu):
         self.ctx = ctx
         self._author_id = ctx.author.id
 
-        channel: MenuChannel = channel or ctx.channel # type: ignore
-        is_guild = hasattr(channel, 'guild') and channel.guild is not None
+        ch = channel or ctx.channel
+        if ch.guild:
+            me = ch.guild.me
+        else:
+            me = cast(discord.Member, ctx.bot.user)
 
-        me = channel.guild.me if is_guild else ctx.bot.user # type: ignore
-        assert me
 
-
-        permissions = channel.permissions_for(me) # type: ignore
-        self._verify_permissions(ctx, channel, permissions)
+        permissions = ch.permissions_for(me)
+        self._verify_permissions(ctx, ch, permissions)
 
         self._event.clear()
         msg = self.message
         if msg is None:
-            self.message = msg = await self.send_initial_message(ctx, channel)
+            self.message = msg = await self.send_initial_message(ctx, ch)
 
         if self.should_add_reactions():
             for task in self.__tasks:
@@ -205,13 +207,13 @@ class ViewMenu(Menu):
 
 
 class ViewMenuPages(MenuPages, ViewMenu):
-    def __init__(self, source: PageSource, **kwargs):
+    def __init__(self, source: PageSource[Any], **kwargs):
         self._source = source
         self.current_page = 0
         super().__init__(source, **kwargs)
 
     async def send_initial_message(
-        self, ctx: commands.Context[commands.Bot], channel: MenuChannel
+        self, ctx: commands.Context[commands.Bot], channel: discord.abc.MessageableChannel
     ) -> discord.Message:
         page = await self._source.get_page(0)
         kwargs = await self._get_kwargs_from_page(page)

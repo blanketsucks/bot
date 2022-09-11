@@ -8,8 +8,10 @@ from typing import (
     TYPE_CHECKING,
     Tuple
 )
+
 import uuid
 from discord.ext import commands
+import discord
 import asyncpg
 
 from src.utils import get_health_stat, get_other_stat, PokedexEntry, Context
@@ -98,22 +100,19 @@ class UserPokemon(commands.Converter[Any]):
         if argument.lower() in ('l', 'latest'):
             entry = user.pokemons.get(user.catch_id)
             if not entry:
-                await ctx.send('Pokémon not found.')
-                return False
+                raise commands.BadArgument('Pokémon not found.')
 
             return entry
         if argument.isdigit():
             entry = user.pokemons.get(int(argument))
             if not entry:
-                await ctx.send('Pokémon not found.')
-                return False
+                raise commands.BadArgument('Pokémon not found.')
 
             return entry
 
         pokemons = user.find(nickname=argument)
         if not pokemons:
-            await ctx.send('Pokémon not found.')
-            return False
+            raise commands.BadArgument('Pokémon not found.')
         
         return pokemons[0]
 
@@ -152,10 +151,6 @@ class UserPokemon(commands.Converter[Any]):
     @property
     def moves(self) -> Moves:
         return self.entry.moves
-    
-    @property
-    def shiny(self) -> bool:
-        return self.entry.shiny
 
     @property
     def nature(self) -> Nature:
@@ -182,8 +177,26 @@ class UserPokemon(commands.Converter[Any]):
     def is_starter(self) -> bool:
         return self.entry.is_starter
 
+    def is_shiny(self) -> bool:
+        return self.entry.is_shiny
+    
+    def is_favourite(self) -> bool:
+        return self.entry.is_favourite
+
+    def is_listed(self) -> bool:
+        return self.data['is_listed']
+    
     def exists(self) -> bool:
         return self.entry.catch_id in self.user.pokemons
+
+    def get_new_catch_id(self) -> int:
+        if self.is_selected():
+            if self.catch_id == 1:
+                return self.catch_id + 1
+            else:
+                return self.catch_id - 1
+        else:
+            return self.catch_id
 
     async def save(self) -> None:
         query = 'UPDATE users SET pokemons = ARRAY_APPEND(users.pokemons, CAST($1 as UUID)), catch_id = $2 WHERE id = $3'
@@ -246,17 +259,11 @@ class UserPokemon(commands.Converter[Any]):
     async def add_exp(self, exp: int) -> UserPokemon:
         return await self.edit(exp=self.exp + exp)
 
-    async def release(self) -> None:
+    async def release(self, *, add_free: bool = True) -> None:
         if not self.exists():
             raise ValueError(f'Pokemon {self.entry.catch_id!r} does not exist')
 
-        if self.is_selected():
-            if self.catch_id == 1:
-                new_selected = self.catch_id + 1
-            else:
-                new_selected = self.catch_id - 1
-        else:
-            new_selected = self.catch_id
+        new_selected = self.get_new_catch_id()
 
         pokemon = self.user.pokemons.pop(self.catch_id)
         query = 'UPDATE users SET pokemons = ARRAY_REMOVE(users.pokemons, $1), selected = $2 WHERE id = $3'
@@ -264,7 +271,9 @@ class UserPokemon(commands.Converter[Any]):
         await self.pool.execute(query, str(pokemon.entry.id), new_selected, self.user.id)
         await self.pool.execute('UPDATE pokemons SET owner_id = 0 WHERE id = $1', str(pokemon.id))
 
-        self.pool.add_free_pokemon(pokemon)
+        if add_free:
+            self.pool.add_free_pokemon(pokemon)
+        
         self.user.data['selected'] = new_selected
 
     async def select(self) -> None:
@@ -282,13 +291,7 @@ class UserPokemon(commands.Converter[Any]):
         self.user.data['selected'] = entry.catch_id
 
     async def transfer(self, to: User) -> None:
-        if self.is_selected():
-            if self.catch_id == 1:
-                new_selected = self.catch_id + 1
-            else:
-                new_selected = self.catch_id - 1
-        else:
-            new_selected = self.catch_id
+        new_selected = self.get_new_catch_id()
 
         pokemon = self.user.pokemons.pop(self.catch_id)
         query = 'UPDATE users SET pokemons = ARRAY_REMOVE(users.pokemons, $1), selected = $2 WHERE id = $3'
@@ -310,6 +313,69 @@ class UserPokemon(commands.Converter[Any]):
         to.data['catch_id'] = catch_id
         self.user.data['selected'] = new_selected
 
+    async def set_favourite(self, value: bool) -> None:
+        await self.pool.execute('UPDATE pokemons SET is_favourite = $1 WHERE id = $2', value, self.id)
+        self.data['is_favourite'] = value
+
+    def build_discord_embed_for(
+        self, user: User, *, show_nickname: bool = True, show_favourite: bool = True, add_footer: bool = True
+    ) -> Tuple[discord.Embed, discord.File]:
+        rounded = self.ivs.round()
+        total = self.pool.bot.get_needed_exp(self.level)
+
+        title = ''
+        if self.is_shiny():
+            title += '✨ '
+        
+        if self.has_nickname() and show_nickname:
+            title += f'Level {self.level} {self.dex.default_name} "{self.nickname}"'
+        else:
+            title += f'Level {self.level} {self.dex.default_name}'
+
+        if self.is_favourite() and show_favourite:
+            title += ' ❤️'
+
+        embed = discord.Embed(title=title, color=0x36E3DD)
+
+        embed.description = f'**Level**: {self.level}'
+        if self.level != 100:
+            embed.description += f' | **EXP**: {self.exp}/{total}\n'
+        else:
+            embed.description += '\n'
+
+        embed.description += f'**Nature**: {self.nature.name}\n\n'
+
+        stats = {
+            'HP': (self.stats.health, self.ivs.hp),
+            'Attack': (self.stats.attack, self.ivs.atk),
+            'Defense': (self.stats.defense, self.ivs.defense),
+            'Sp. Atk': (self.stats.spatk, self.ivs.spatk),
+            'Sp. Def': (self.stats.spdef, self.ivs.spdef),
+            'Speed': (self.stats.speed, self.ivs.speed)
+        }
+
+        if user.has_detailed_pokemon_view():
+            stats = [f'**{k}**: {v} | IV: {i}/31' for k, (v, i) in stats.items()]
+        else:
+            stats = [f'**{k}**: {v}' for k, (v, _) in stats.items()]
+
+        embed.description += '\n'.join(stats)
+
+        if user.has_detailed_pokemon_view():
+            embed.description += f'\n**Total IV**: {rounded}%'
+
+        if add_footer:
+            embed.set_footer(text=f'Displaying pokémon {self.catch_id}.')
+
+        embed.set_image(url='attachment://pokemon.png')
+        if self.is_shiny():
+            image = self.dex.images.shiny
+        else:
+            image = self.dex.images.default
+
+        file = discord.File(image, filename='pokemon.png')
+        return embed, file
+
 class User(RecordModel):
     def __init__(self, record: asyncpg.Record, pokemons: List[asyncpg.Record], pool: Pool) -> None:
         super().__init__(record, pool)
@@ -319,7 +385,10 @@ class User(RecordModel):
 
     def _update_pokemons(self, records: List[asyncpg.Record]) -> None:
         records = sorted(records, key=lambda record: record['catch_id'])
-        self.pokemons = {pokemon['catch_id']: UserPokemon(self, dict(pokemon)) for pokemon in records}
+        self.pokemons = {
+            pokemon['catch_id']: UserPokemon(self, dict(pokemon)) 
+            for pokemon in records if not pokemon['is_listed']
+        }
 
     @property
     def credits(self) -> int:
@@ -336,6 +405,9 @@ class User(RecordModel):
     @property
     def redeems(self) -> int:
         return self.data['redeems']
+
+    def has_detailed_pokemon_view(self) -> bool:
+        return self.data['detailed_pokemon_view']
 
     def find(self, **attrs: Any) -> List[UserPokemon]:
         pokemons = [
@@ -393,6 +465,10 @@ class User(RecordModel):
     async def remove_credits(self, amount: int) ->  None:
         await self.pool.execute('UPDATE users SET credits = credits - $1 WHERE id = $2', amount, self.id)
         self.data['credits'] -= amount
+    
+    async def set_detailed_view(self, value: bool) -> None:
+        await self.pool.execute('UPDATE users SET detailed_pokemon_view = $1 WHERE id = $2', value, self.id)
+        self.data['detailed_pokemon_view'] = value
             
     async def add_pokemon(
         self,
@@ -459,7 +535,7 @@ class User(RecordModel):
         await self.pool.execute('UPDATE users SET selected = $1, catch_id = $2 WHERE id = $3', selected, index - 1, self.id)    
         await self.pool.executemany('UPDATE pokemons SET catch_id = $1 WHERE id = $2', data)
 
-        records = await self.pool.fetch('SELECT * FROM pokemons WHERE owner_id = $1', self.id)
+        records = await self.pool.fetch('SELECT * FROM pokemons WHERE owner_id = $1 AND is_listed = FALSE', self.id)
         self._update_pokemons(records)
 
     async def refetch(self):

@@ -3,10 +3,14 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, List, Optional, Dict, Any, NamedTuple, Tuple
 import dataclasses
 import uuid
+import discord
 
 from src.utils import sequence
+from src.utils.pokedex import PokedexEntry
 
 if TYPE_CHECKING:
+    from src.bot import Pokecord
+    from .user import User
     from .pool import Pool
 
 class Moves(NamedTuple):
@@ -81,8 +85,9 @@ class Pokemon:
     moves: Moves
     nature: str
     catch_id: int
-    shiny: bool
+    is_shiny: bool
     is_starter: bool
+    is_favourite: bool
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> Pokemon:
@@ -98,8 +103,28 @@ class Pokemon:
             moves=Moves.from_dict(data['moves']),
             nature=data['nature'],
             catch_id=data['catch_id'],
-            shiny=data['shiny'],
-            is_starter=data['is_starter']
+            is_shiny=data['is_shiny'],
+            is_starter=data['is_starter'],
+            is_favourite=data['is_favourite']
+        )
+
+    @classmethod
+    def new(cls, entry: PokedexEntry, nature: str, owner_id: int, catch_id: int, is_shiny: bool) -> Pokemon:
+        return cls(
+            id=uuid.uuid4(),
+            dex_id=entry.id,
+            owner_id=owner_id,
+            nickname=entry.default_name,
+            level=1,
+            exp=0,
+            ivs=IVs.generate(),
+            evs=EVs.generate(),
+            moves=Moves.default(),
+            nature=nature,
+            catch_id=catch_id,
+            is_shiny=is_shiny,
+            is_starter=False,
+            is_favourite=False
         )
 
     async def create(self, pool: Pool) -> None:

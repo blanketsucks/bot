@@ -1,29 +1,33 @@
 from __future__ import annotations
 
 from typing import Any, Dict, Iterable, List, Optional, TYPE_CHECKING, Sequence, Tuple
-import uuid
 import asyncpg
 import json
+import datetime
 import functools
 
 from .user import User, UserPokemon
 from .guild import Guild
-from .pokemons import EVs, Pokemon, IVs, Moves
+from .pokemons import Pokemon
 from .items import ShopItem, ShopItemKind
-from src.utils import chance
+from .market import Market
+from src.utils import chance, TTLDict
 
 if TYPE_CHECKING:
     from src.bot import Pokecord
 
 class Pool:
+    free: TTLDict[int, Tuple[List[UserPokemon], List[UserPokemon]]]
+
     def __init__(self, pool: asyncpg.Pool[asyncpg.Record], bot: Pokecord) -> None:
         self.wrapped = pool
         self.bot = bot
 
         self.users: Dict[int, User] = {}
-        
+        self.market: Optional[Market] = None
+
         # { dex_id: ( [non-shiny pokemons...], [shiny pokemons...] ) }
-        self.free: Dict[int, Tuple[List[UserPokemon], List[UserPokemon]]] = {}
+        self.free = TTLDict(expiry=datetime.timedelta(minutes=60))
 
     async def __aenter__(self) -> Pool:
         return self
@@ -53,9 +57,13 @@ class Pool:
         async with self.acquire() as conn:
             return await conn.fetchrow(query, *args)
 
+    async def fetchval(self, query: str, *args) -> Any:
+        async with self.acquire() as conn:
+            return await conn.fetchval(query, *args)
+
     def add_free_pokemon(self, pokemon: UserPokemon) -> None:
         free = self.free.setdefault(pokemon.dex.id, ([], []))
-        free[pokemon.shiny].append(pokemon)
+        free[pokemon.is_shiny()].append(pokemon)
 
     def get_free_pokemon(self, dex_id: int, *, is_shiny: bool = False) -> Optional[UserPokemon]:
         if dex_id not in self.free:
@@ -72,26 +80,8 @@ class Pool:
         if not pokemon:
             raise ValueError(f'Dex entry with id {pokemon_id!r} does not exist')
 
-        ivs = IVs.generate()
-        evs = EVs.generate()
-        moves = Moves.default()
-
         nature = self.bot.generate_nature()
-        return Pokemon(
-            id=uuid.uuid4(),
-            dex_id=pokemon_id,
-            owner_id=owner_id,
-            nickname=pokemon.default_name,
-            level=1,
-            exp=0,
-            ivs=ivs,
-            evs=evs,
-            moves=moves,
-            nature=nature,
-            catch_id=catch_id,
-            shiny=is_shiny,
-            is_starter=False
-        )
+        return Pokemon.new(pokemon, nature, owner_id, catch_id, is_shiny)
 
     async def add_user(self, user_id: int, pokemon_id: int) -> User:
         async with self.acquire() as conn:
@@ -144,6 +134,12 @@ class Pool:
             return None
 
         return Guild(record, self)
+
+    async def get_market(self) -> Market:
+        if self.market is None:
+            self.market = await Market.fetch(self)
+
+        return self.market
 
     async def add_item(self, name: str, description: str, price: int, kind: ShopItemKind):
         await self.execute(

@@ -6,16 +6,15 @@ CREATE TABLE IF NOT EXISTS users (
     catch_id BIGINT DEFAULT 1,
     selected BIGINT DEFAULT 1,
     pokemons UUID[],
+    detailed_pokemon_view BOOLEAN DEFAULT FALSE,
     redeems INT DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS market (
-    id BIGINT,
+    id SERIAL PRIMARY KEY,
     price BIGINT,
-    pokemon_id BIGINT,
-    owner_id BIGINT,
-
-    PRIMARY KEY(id)
+    pokemon_id UUID,
+    owner_id BIGINT
 );
 
 CREATE TABLE IF NOT EXISTS pokemons (
@@ -30,8 +29,10 @@ CREATE TABLE IF NOT EXISTS pokemons (
     evs INT[6] NOT NULL,
     moves TEXT[4] NOT NULL,
     nature TEXT,
-    shiny BOOLEAN DEFAULT FALSE,
-    is_starter BOOLEAN DEFAULT FALSE
+    is_shiny BOOLEAN DEFAULT FALSE,
+    is_starter BOOLEAN DEFAULT FALSE,
+    is_favourite BOOLEAN DEFAULT FALSE,
+    is_listed BOOLEAN DEFAULT FALSE
 );
 
 CREATE TABLE IF NOT EXISTS guilds (

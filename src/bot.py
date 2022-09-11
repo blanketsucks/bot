@@ -14,7 +14,7 @@ import functools
 import datetime
 import logging
 
-from .utils import Pokedex, Context, ContextPool, print_with_color
+from .utils import Pokedex, Context, ContextPool, TTLDict
 from .consts import DATA
 from . import database
 
@@ -56,7 +56,7 @@ class Pokecord(commands.Bot):
     def __init__(self):
         super().__init__(command_prefix='p!', intents=discord.Intents.all())
 
-        self.messages: Dict[str, discord.Message] = {}
+        self.messages: TTLDict[str, discord.Message] = TTLDict(expiry=datetime.timedelta(seconds=60))
 
         self.load_data()
 
