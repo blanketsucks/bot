@@ -18,8 +18,6 @@ from .utils import Pokedex, Context, ContextPool, TTLDict
 from .consts import DATA
 from . import database
 
-logger = logging.getLogger(__name__)
-
 class SpawnRates(enum.IntEnum):
     Global = 10000
     Shiny = 8192
@@ -41,9 +39,6 @@ class LevelInformation(NamedTuple):
     needed: int
     total: int
 
-class PosixFlags(commands.FlagConverter, prefix='--', delimiter=' '):
-    pass
-
 class Pokecord(commands.Bot):
     CHANNEL_SPAWN_TIMEOUT: ClassVar[float] = 60.0
     TRADE_TIMEOUT: ClassVar[float] = 75.0
@@ -53,17 +48,18 @@ class Pokecord(commands.Bot):
     session: aiohttp.ClientSession
     levels: Dict[int, LevelInformation]
 
-    def __init__(self):
+    def __init__(self, logger: logging.Logger):
         super().__init__(command_prefix='p!', intents=discord.Intents.all())
-
+        
+        self.logger = logger
         self.messages: TTLDict[str, discord.Message] = TTLDict(expiry=datetime.timedelta(seconds=60))
-
-        self.load_data()
-
         self.ignored_commands = ('starter',)
-        self.add_check(self.starter_check, call_once=True)
 
         self._is_day = False
+
+        self.load_data()
+        self.add_check(self.starter_check, call_once=True)
+
 
     @functools.lru_cache(maxsize=256)
     def get_close_matches(self, name: str):
@@ -121,7 +117,7 @@ class Pokecord(commands.Bot):
             self.natures = {name: Nature(name, **nature) for name, nature in natures.items()}
 
         self.pokedex = Pokedex()
-        logger.info('Loaded pokedex data.')
+        self.logger.info('Loaded pokedex data.')
 
     def get_needed_exp(self, level: int) -> int:
         return self.levels[level].needed

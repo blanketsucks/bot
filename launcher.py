@@ -60,8 +60,8 @@ for file in COGS.glob('*[!_].py'):
     EXTENSIONS.append('.'.join(file.parts[-3:]))
 
 async def main():
-    bot = Pokecord()
     logger = setup_logging()
+    bot = Pokecord(logger)
 
     for extension in EXTENSIONS:
         await bot.load_extension(extension)
