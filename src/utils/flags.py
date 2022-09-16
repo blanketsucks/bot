@@ -52,14 +52,26 @@ class ArgumentParser(argparse.ArgumentParser):
     def error(self, message: str):
         raise FlagParserError(message)
 
+def _walk_flags(bases: Tuple[Type[Any], ...]) -> Tuple[Dict[str, Flag], Dict[str, str]]:
+    flags: Dict[str, Flag] = {}
+    aliases: Dict[str, str] = {}
+
+    for base in bases:
+        if not issubclass(base, FlagParser):
+            continue
+
+        flags.update(base.__internal_flags__)
+        aliases.update(base.__flag_aliases__)
+
+    return flags, aliases
+
 class FlagParserMeta(type):
     __internal_flags__: Dict[str, Flag]
     __flag_aliases__: Dict[str, str]
     __flag_prefix__: str
 
-    def __new__(cls, name: str, bases: Tuple[Type, ...], attrs: Dict[str, Any], **kwargs: Any):
-        flags: Dict[str, Flag] = {}
-        aliases: Dict[str, str] = {}
+    def __new__(cls, name: str, bases: Tuple[Type[Any], ...], attrs: Dict[str, Any], **kwargs: Any):
+        flags, aliases = _walk_flags(bases)
         annotations: Dict[str, Any] = attrs.get('__annotations__', {})
 
         for key, value in annotations.items():

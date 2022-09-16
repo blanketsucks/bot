@@ -9,13 +9,12 @@ from typing import (
     Tuple
 )
 
-import uuid
 from discord.ext import commands
 import discord
 import asyncpg
+import uuid
 
 from src.utils import get_health_stat, get_other_stat, PokedexEntry, Context
-from .model import RecordModel
 from .pokemons import EVs, IVs, Moves, Pokemon
 
 if TYPE_CHECKING:
@@ -376,12 +375,12 @@ class UserPokemon(commands.Converter[Any]):
         file = discord.File(image, filename='pokemon.png')
         return embed, file
 
-class User(RecordModel):
+class User:
     def __init__(self, record: asyncpg.Record, pokemons: List[asyncpg.Record], pool: Pool) -> None:
-        super().__init__(record, pool)
-        self._update_pokemons(pokemons)
-    
+        self.pool = pool
         self.data = dict(record)
+
+        self._update_pokemons(pokemons)
 
     def _update_pokemons(self, records: List[asyncpg.Record]) -> None:
         records = sorted(records, key=lambda record: record['catch_id'])
@@ -389,6 +388,14 @@ class User(RecordModel):
             pokemon['catch_id']: UserPokemon(self, dict(pokemon)) 
             for pokemon in records if not pokemon['is_listed']
         }
+
+    @property
+    def bot(self):
+        return self.pool.bot
+
+    @property
+    def id(self) -> int:
+        return self.data['id']
 
     @property
     def credits(self) -> int:

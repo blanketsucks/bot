@@ -187,6 +187,9 @@ class Spawns(commands.Cog):
         if (selected.exp + increment) >= self.bot.get_needed_exp(selected.level):
             level = selected.level + 1
 
+            embed = discord.Embed(color=0x36E3DD)
+            embed.title = f'Congratulations {message.author}!'
+
             if selected.dex.evolutions.to:
                 for evolution in selected.dex.evolutions.to:
                     entry = self.bot.pokedex.get_pokemon(evolution)
@@ -199,10 +202,11 @@ class Spawns(commands.Cog):
                     ):
                         return await selected.edit(level=level, exp=0, dex_id=entry.id)
 
+            embed.description = f'Your {selected.nickname} is now level {level}.'
+
             await selected.edit(level=level, exp=0)
         else:
             await selected.add_exp(increment)
-        
-            
+           
 async def setup(bot: Pokecord):
     await bot.add_cog(Spawns(bot))

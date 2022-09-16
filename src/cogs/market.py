@@ -1,10 +1,12 @@
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Any
 
 from discord.ext import commands
 import discord
 
+from ._common import CommonPokemonFlags
+
 from src.bot import Pokecord
-from src.utils import menus, flags
+from src.utils import menus, flags, parse_integer_ordering
 from src.utils import Context, ConfirmationView
 from src.utils.pokedex import PokedexEntry
 from src.database.user import UserPokemon
@@ -12,15 +14,10 @@ from src.database.market import MarketListing
 from src.database.pokemons import Pokemon
 from src.utils.menus.views import ViewMenuPages
 
-class MarketSearchFlags(flags.FlagParser):
+class MarketSearchFlags(CommonPokemonFlags):
     price: Optional[str]
-    name: Optional[str] = flags.flag(aliases=['n'])
     sort: Optional[str] = flags.flag(choices=['iv', 'level', 'price'])
     order: Optional[str] = flags.flag(choices=['a', 'ascending', 'd', 'descending'])
-    legendary: bool = flags.flag(aliases=['leg'])
-    mythical: bool = flags.flag(aliases=['myth'])
-    ultra_beast: bool = flags.flag(name='ultra-beast', aliases=['ub'])
-    shiny: bool = flags.flag(aliases=['sh'])
     mine: bool = flags.flag(aliases=['me'])
 
 class MarketListingsSource(menus.ListPageSource[Tuple[Pokemon, MarketListing]]):
@@ -137,27 +134,12 @@ class Market(commands.Cog):
             entry: PokedexEntry = self.bot.pokedex.get_pokemon(pokemon.dex_id) # type: ignore
 
             if flags.price is not None:
-                price = flags.price
-                order = 'eq'
-
-                if flags.price.endswith('>'):
-                    price = flags.price.removesuffix('>')
-                    order = 'gt'
-                elif flags.price.endswith('<'):
-                    price = flags.price.removesuffix('<')
-                    order = 'lt'
-
                 try:
-                    price = int(price)
+                    ret = parse_integer_ordering(flags.price, listing.price)
                 except ValueError:
                     return await ctx.send('Invalid price argument.')
 
-                if order == 'eq':
-                    if listing.price != price: continue
-                elif order == 'gt':
-                    if listing.price < price: continue
-                else:
-                    if listing.price > price: continue
+                if not ret: continue
             if flags.name is not None:
                 if pokemon.nickname.casefold() != flags.name.casefold(): continue
             if flags.legendary:

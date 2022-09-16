@@ -10,17 +10,6 @@ from src.bot import Pokecord
 from src.database import User
 from src.utils import Context, ConfirmationView
 from src.database.user import UserPokemon
-from src.database.pokemons import IVs, EVs, Moves
-
-class TradedPokemon(NamedTuple):
-    level: int
-    exp: int
-    ivs: IVs
-    evs: EVs
-    moves: Moves
-    id: int
-    nickname: str
-    shiny: bool
 
 class UserTrade:
     def __init__(self, user: User) -> None:
@@ -136,7 +125,7 @@ class Trades(commands.Cog):
 
         for pokemon in user.pokemons:
             fmt += f'Level {pokemon.level} '
-            if pokemon.shiny:
+            if pokemon.is_shiny():
                 fmt += '✨ ' 
             
             fmt += pokemon.dex.default_name
@@ -163,6 +152,9 @@ class Trades(commands.Cog):
                 embed.description += self.format_trade_list(trade.trade.p1)
 
                 embed.description += '\n'
+            else:
+                if trade.trade.p1.confirmed:
+                    embed.description += f'**{trade.user1}** ✅\n'
             
             if not trade.trade.p2.empty():
                 embed.description += f'**{trade.user2}\'s items**: '
@@ -172,6 +164,9 @@ class Trades(commands.Cog):
                     embed.description += '\n'
 
                 embed.description += self.format_trade_list(trade.trade.p2)
+            else:
+                if trade.trade.p2.confirmed:
+                    embed.description += f'**{trade.user2}** ✅\n'
 
             embed.set_footer(text='Add items using `p!trade add credits <credits>` or p!trade add pokemon <pokemon>`')
             await trade.message.edit(embed=embed, content=None)

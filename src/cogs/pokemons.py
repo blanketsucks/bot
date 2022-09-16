@@ -1,21 +1,19 @@
 from typing import Iterable, Optional, List
+
 from discord.ext import commands
 import discord
+
+from ._common import CommonPokemonFlags
 
 from src.utils import Context, chunk, find, ConfirmationView
 from src.utils import menus, flags
 from src.database.user import UserPokemon, User
 from src.bot import Pokecord
 
-class PokemonFlags(flags.FlagParser):
-    level: Optional[int]
-    name: Optional[str] = flags.flag(aliases=['n'])
+class PokemonFlags(CommonPokemonFlags):
     nickname: Optional[str] = flags.flag(aliases=['nick'])
     sort: Optional[str] = flags.flag(choices=['iv', 'level'])
     order: Optional[str] = flags.flag(choices=['a', 'ascending', 'd', 'descending'])
-    legendary: bool = flags.flag(aliases=['leg'])
-    ultra_beast: bool = flags.flag(name='ultra-beast', aliases=['ub'])
-    shiny: bool = flags.flag(aliases=['sh'])
     favourite: bool = flags.flag(aliases=['fav'])
 
 class PokemonsSource(menus.ListPageSource[UserPokemon]):
@@ -69,23 +67,24 @@ class Pokemons(commands.Cog):
     @commands.command(aliases=['p'])
     async def pokemons(self, ctx: Context, *, flags: PokemonFlags = PokemonFlags.default()):
         user = ctx.pool.user
-        entries = list(user.pokemons.values())
-        
-        if flags.level is not None:
-            entries = find(entries, lambda entry: entry.level == flags.level)
-        if flags.name is not None:
-            name = flags.name
-            entries = find(entries, lambda entry: entry.dex.default_name.casefold() == name.casefold())
-        if flags.nickname is not None:
-            entries = find(entries, lambda entry: entry.nickname == flags.nickname)
-        if flags.shiny:
-            entries = find(entries, lambda entry: entry.is_shiny())
-        if flags.legendary:
-            entries = find(entries, lambda entry: entry.dex.rarity.legendary)
-        if flags.ultra_beast:
-            entries = find(entries, lambda entry: entry.dex.rarity.ultra_beast)
-        if flags.favourite:
-            entries = find(entries, lambda entry: entry.is_favourite())
+        entries: List[UserPokemon] = []
+        for entry in user.pokemons.values():
+            if flags.level is not None:
+                if entry.level != flags.level: continue
+            if flags.name is not None:
+                if entry.nickname.casefold() != flags.name.casefold(): continue
+            if flags.nickname is not None:
+                if entry.nickname != flags.nickname: continue
+            if flags.shiny:
+                if not entry.is_shiny(): continue
+            if flags.legendary:
+                if not entry.dex.rarity.legendary: continue
+            if flags.ultra_beast:
+                if not entry.dex.rarity.ultra_beast: continue
+            if flags.favourite:
+                if not entry.is_favourite(): continue
+
+            entries.append(entry)
 
         if flags.sort is not None:
             if flags.sort == 'iv':

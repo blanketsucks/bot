@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any, Dict, Iterable, List, Optional, TYPE_CHECKING, Sequence, Tuple
+
 import asyncpg
 import json
 import datetime
@@ -24,6 +25,8 @@ class Pool:
         self.bot = bot
 
         self.users: Dict[int, User] = {}
+        self.guilds: Dict[int, Guild] = {}
+
         self.market: Optional[Market] = None
 
         # { dex_id: ( [non-shiny pokemons...], [shiny pokemons...] ) }
@@ -60,6 +63,12 @@ class Pool:
     async def fetchval(self, query: str, *args) -> Any:
         async with self.acquire() as conn:
             return await conn.fetchval(query, *args)
+
+    async def fill_cache(self) -> None:
+        await self.fill_user_cache()
+        await self.fill_guild_cache()
+
+        await self.get_market()
 
     def add_free_pokemon(self, pokemon: UserPokemon) -> None:
         free = self.free.setdefault(pokemon.dex.id, ([], []))
@@ -117,6 +126,18 @@ class Pool:
 
             return user
 
+    async def fill_user_cache(self) -> None:
+        records = await self.fetch('SELECT * FROM users')
+        for record in records:
+            if record['id'] in self.users:
+                continue
+
+            pokemons = await self.fetch('SELECT * from pokemons WHERE owner_id = $1', record['id'])
+            user = User(record, pokemons, self)
+
+            self.users[record['id']] = user
+            await user.reindex()
+
     async def add_guild(self, guild_id: int) -> Guild:
         async with self.acquire() as conn:
             record = await conn.fetchrow('SELECT * from guilds WHERE id = $1', guild_id)
@@ -124,17 +145,35 @@ class Pool:
                 await conn.execute('INSERT INTO guilds(id) VALUES($1)', guild_id)
 
             record = await conn.fetchrow('SELECT * from guilds WHERE id = $1', guild_id)
-
             assert record
-            return Guild(record, self)
+
+            guild = Guild(record, self)
+            self.guilds[guild_id] = guild
+
+            return guild
 
     async def get_guild(self, guild_id: int) -> Optional[Guild]:
+        if guild_id in self.guilds:
+            return self.guilds[guild_id]
+
         record = await self.fetchrow('SELECT * FROM guilds WHERE id = $1', guild_id)
         if not record:
             return None
 
-        return Guild(record, self)
+        guild = Guild(record, self)
+        self.guilds[guild_id] = guild
 
+        return guild
+
+    async def fill_guild_cache(self):
+        records = await self.fetch('SELECT * FROM guilds')
+        for record in records:
+            if record['id'] in self.guilds:
+                continue
+
+            guild = Guild(record, self)
+            self.guilds[record['id']] = guild
+    
     async def get_market(self) -> Market:
         if self.market is None:
             self.market = await Market.fetch(self)

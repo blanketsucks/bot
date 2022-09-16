@@ -54,7 +54,7 @@ def setup_logging():
     return logger
 
 EXTENSIONS: List[str] = ['jishaku']
-for file in COGS.glob('*[!_].py'):
+for file in COGS.glob('[!_]*.py'):
     file = file.with_suffix('')
 
     EXTENSIONS.append('.'.join(file.parts[-3:]))
